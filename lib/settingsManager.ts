@@ -189,11 +189,18 @@ class SettingsManager {
         throw new Error('User not authenticated')
       }
 
+      // For boolean values, ensure they're stored correctly in JSONB
+      let jsonbValue: any = value
+      if (type === 'boolean') {
+        // Store boolean as direct boolean value in JSONB
+        jsonbValue = value === true || value === 'true' || value === 'True'
+      }
+
       const { error } = await (this.supabase
         .from('system_settings') as any)
         .upsert({
           setting_key: key,
-          setting_value: value,
+          setting_value: jsonbValue,
           setting_type: type,
           description,
           category,
@@ -220,6 +227,28 @@ class SettingsManager {
 
   async getAllSystemSettings(category?: string): Promise<SystemSetting[]> {
     try {
+      // Try using the safe RPC function first (if it exists)
+      try {
+        const { data: functionResult, error: functionError } = await (this.supabase as any)
+          .rpc('get_all_system_settings_safe', {
+            p_category: category || null
+          })
+
+        if (!functionError && functionResult) {
+          // Function exists and worked
+          console.log(`✅ Loaded ${functionResult.length} system settings using RPC function`)
+          return functionResult || []
+        }
+        
+        if (functionError) {
+          console.log('RPC function error, trying fallback:', functionError)
+        }
+      } catch (funcErr) {
+        // Function might not exist, continue to fallback
+        console.log('Function get_all_system_settings_safe not available, using direct query:', funcErr)
+      }
+
+      // Fallback to direct query (if function doesn't exist or failed)
       let query = this.supabase.from('system_settings').select('*')
       
       if (category) {
@@ -228,7 +257,15 @@ class SettingsManager {
 
       const { data, error } = await query.order('setting_key')
 
-      if (error) throw error
+      if (error) {
+        console.error('Error getting all system settings:', error)
+        // If RLS error, return empty array and log warning
+        if (error.code === '42501') {
+          console.warn('⚠️ Permission denied - RLS blocking access. Please run Database/get-all-system-settings-safe.sql to create RPC function.')
+        }
+        return []
+      }
+      
       return data || []
     } catch (error) {
       console.error('Error getting all system settings:', error)

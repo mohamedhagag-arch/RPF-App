@@ -16,7 +16,8 @@ interface BOQFilterProps {
   
   // Activities data
   activities: Array<{ 
-    activity_name: string
+    activity_name?: string
+    activity_description?: string
     project_full_code?: string
     zone?: string
     zone_number?: string
@@ -206,13 +207,13 @@ export function BOQFilter({
     // Remove duplicates by activity_name (keep unique activities)
     const uniqueActivities = Array.from(
       new Map(
-        filteredByProject.map(activity => [activity.activity_name, activity])
+        filteredByProject.map(activity => [activity.activity_description || activity.activity_name || '', activity])
       ).values()
     )
     
     // Then filter by search term
     return uniqueActivities.filter(activity =>
-      !activitySearch || activity.activity_name.toLowerCase().includes(activitySearch.toLowerCase())
+      !activitySearch || (activity.activity_description || activity.activity_name || '').toLowerCase().includes(activitySearch.toLowerCase())
     )
   })()
   
@@ -532,17 +533,17 @@ export function BOQFilter({
                 {availableActivities.length > 0 ? (
                   availableActivities.map((activity, idx) => (
                     <label
-                      key={`activity-${activity.activity_name}-${idx}`}
+                      key={`activity-${activity.activity_description || activity.activity_name || ''}-${idx}`}
                       className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
                     >
                       <input
                         type="checkbox"
-                        checked={selectedActivities.includes(activity.activity_name)}
-                        onChange={() => toggleActivity(activity.activity_name)}
+                        checked={selectedActivities.includes(activity.activity_description || activity.activity_name || '')}
+                        onChange={() => toggleActivity(activity.activity_description || activity.activity_name || '')}
                         className="w-4 h-4 text-green-600 rounded"
                       />
                       <span className="text-sm text-gray-900 dark:text-gray-100 truncate">
-                        {activity.activity_name}
+                        {activity.activity_description || activity.activity_name || ''}
                       </span>
                     </label>
                   ))

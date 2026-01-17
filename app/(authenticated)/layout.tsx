@@ -19,6 +19,8 @@ import { ProfileCompletionWrapper } from '@/components/auth/ProfileCompletionWra
 import { useActivityTracker } from '@/hooks/useActivityTracker'
 import { sessionTimeoutManager } from '@/lib/sessionTimeoutManager'
 import { professionalSessionManager } from '@/lib/professionalSessionManager'
+import { useMaintenanceMode } from '@/hooks/useMaintenanceMode'
+import { MaintenancePage } from '@/components/maintenance/MaintenancePage'
 import '@/lib/simpleConnectionTest'
 
 /**
@@ -45,6 +47,7 @@ export default function AuthenticatedLayout({
   const pathname = usePathname()
   const [mounted, setMounted] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const { enabled: maintenanceEnabled, loading: maintenanceLoading, message, estimatedTime } = useMaintenanceMode()
   const [notificationCount, setNotificationCount] = useState(0)
   const [showNotifications, setShowNotifications] = useState(false)
   const notificationButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -465,6 +468,11 @@ export default function AuthenticatedLayout({
         </div>
       </div>
     )
+  }
+
+  // ✅ Check maintenance mode - if enabled and user is not admin, show maintenance page
+  if (!maintenanceLoading && maintenanceEnabled && appUser?.role !== 'admin') {
+    return <MaintenancePage message={message} estimatedTime={estimatedTime} />
   }
 
   // Authenticated state: Show full layout

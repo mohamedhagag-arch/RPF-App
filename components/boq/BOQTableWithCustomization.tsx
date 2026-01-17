@@ -586,7 +586,7 @@ export function BOQTableWithCustomization({
     // ============================================
     
     if (allKPIs && allKPIs.length > 0) {
-      const activityName = (activity.activity_description || activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       const activityZone = getActivityZone(activity)
@@ -677,7 +677,7 @@ export function BOQTableWithCustomization({
           if (process.env.NODE_ENV === 'development') {
             const rawKPI = (validDates[0].kpi as any).raw || {}
             const kpiZone = getKPIZone(validDates[0].kpi)
-            const activityDescription = activity.activity_description || activity.activity_name || activity.activity || 'N/A'
+            const activityDescription = activity.activity_description || 'N/A'
             console.log(`📅 [Planned Start Date] ✅ Activity "${activityDescription}" (Zone: ${activityZone || 'N/A'}):`, {
               matchingKPIsCount: matchingKPIs.length,
               validDatesCount: validDates.length,
@@ -881,7 +881,7 @@ export function BOQTableWithCustomization({
     // ============================================
     
     if (allKPIs && allKPIs.length > 0) {
-      const activityName = (activity.activity_description || activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       const activityZone = getActivityZone(activity)
@@ -969,7 +969,7 @@ export function BOQTableWithCustomization({
           if (process.env.NODE_ENV === 'development') {
             const rawKPI = (validDates[0].kpi as any).raw || {}
             const kpiZone = getKPIZone(validDates[0].kpi)
-            const activityDescription = activity.activity_description || activity.activity_name || activity.activity || 'N/A'
+            const activityDescription = activity.activity_description || 'N/A'
             console.log(`📅 [Actual Start Date] ✅ Activity "${activityDescription}" (Zone: ${activityZone || 'N/A'}):`, {
               matchingKPIsCount: matchingKPIs.length,
               validDatesCount: validDates.length,
@@ -1107,7 +1107,7 @@ export function BOQTableWithCustomization({
     // ============================================
     
     if (allKPIs && allKPIs.length > 0) {
-      const activityName = (activity.activity_description || activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       const activityZone = getActivityZone(activity)
@@ -1195,7 +1195,7 @@ export function BOQTableWithCustomization({
           if (process.env.NODE_ENV === 'development') {
             const rawKPI = (validDates[validDates.length - 1].kpi as any).raw || {}
             const kpiZone = getKPIZone(validDates[validDates.length - 1].kpi)
-            const activityDescription = activity.activity_description || activity.activity_name || activity.activity || 'N/A'
+            const activityDescription = activity.activity_description || 'N/A'
             console.log(`📅 [Actual End Date] ✅ Activity "${activityDescription}" (Zone: ${activityZone || 'N/A'}):`, {
               matchingKPIsCount: matchingKPIs.length,
               validDatesCount: validDates.length,
@@ -1317,7 +1317,7 @@ export function BOQTableWithCustomization({
       
       // Match Activity Name (required)
       const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi['Activity Description'] || kpi.activity || rawKPI['Activity Name'] || rawKPI['Activity Description'] || '').toLowerCase().trim()
-      const activityName = (activity.activity_description || activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       
       const activityMatch = kpiActivityName && activityName && (
         kpiActivityName === activityName ||
@@ -1330,7 +1330,7 @@ export function BOQTableWithCustomization({
       // Match Zone (optional but helps with precision)
       // ✅ NOT from Section - Section is separate from Zone
       const kpiZone = (kpi.zone || kpi['Zone'] || rawKPI['Zone'] || '').toLowerCase().trim()
-      const activityZone = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
+      const activityZone = (activity.zone_number || '').toLowerCase().trim()
       
       if (activityZone && kpiZone) {
         return kpiZone === activityZone || kpiZone.includes(activityZone) || activityZone.includes(kpiZone)
@@ -1404,8 +1404,6 @@ export function BOQTableWithCustomization({
       // ✅ NEW: If zone is empty, try to extract from activity description
       if (!zoneValue || zoneValue.trim() === '') {
         const activityDescription = activity.activity_description || 
-                                   activity.activity_name || 
-                                   activity.activity || 
                                    raw['Activity Description'] ||
                                    raw['Activity'] ||
                                    raw['Activity Name'] ||
@@ -1526,7 +1524,7 @@ export function BOQTableWithCustomization({
       
       // 2. Activity Name Matching (required)
       const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi['Activity Description'] || kpi.activity || rawKPI['Activity Name'] || rawKPI['Activity Description'] || '').toLowerCase().trim()
-      const activityName = (activity.activity_description || activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityMatch = kpiActivityName && activityName && (
         kpiActivityName === activityName || 
         kpiActivityName.includes(activityName) || 
@@ -1545,7 +1543,7 @@ export function BOQTableWithCustomization({
           // Debug: KPI rejected because it has no zone but activity has zone
           if (process.env.NODE_ENV === 'development') {
             console.log(`🚫 [Zone Match] KPI rejected: Activity has zone "${activityZone}" but KPI has no zone`, {
-              activityName: activity.activity_description || activity.activity_name || activity.activity || 'N/A',
+              activityName: activity.activity_description || 'N/A',
               kpiActivityName: kpi.activity_name || kpi['Activity Name'],
               kpiProjectCode: kpi.project_code || kpi['Project Code']
             })
@@ -1588,7 +1586,7 @@ export function BOQTableWithCustomization({
           // Debug: KPI rejected because zone numbers don't match
           if (process.env.NODE_ENV === 'development') {
             console.log(`🚫 [Zone Match] KPI rejected: Zone numbers don't match`, {
-              activityName: activity.activity_description || activity.activity_name || activity.activity || 'N/A',
+              activityName: activity.activity_description || 'N/A',
               activityZone,
               activityZoneNum,
               kpiZone,
@@ -1621,7 +1619,7 @@ export function BOQTableWithCustomization({
                 !normalizedKpiZone.includes(normalizedActivityZone)) {
               if (process.env.NODE_ENV === 'development') {
                 console.log(`🚫 [Zone Match] KPI rejected: Zone text mismatch despite number match`, {
-                  activityName: activity.activity_description || activity.activity_name || activity.activity || 'N/A',
+                  activityName: activity.activity_description || 'N/A',
                   activityZone: normalizedActivityZone,
                   activityZoneNum,
                   kpiZone: normalizedKpiZone,
@@ -1647,7 +1645,7 @@ export function BOQTableWithCustomization({
           ).replace(/,/g, '').trim()
           const kpiQuantity = parseFloat(quantityStr) || 0
           console.log(`✅ [Zone Match] KPI accepted: Zones match`, {
-            activityName: activity.activity_description || activity.activity_name || activity.activity || 'N/A',
+            activityName: activity.activity_description || 'N/A',
             activityZone: normalizedActivityZone,
             activityZoneNum,
             kpiZone: normalizedKpiZone,
@@ -1819,7 +1817,7 @@ export function BOQTableWithCustomization({
             : projectFullName || 'N/A'
         
         // Get activity description (merged from Activity and Activity Name)
-        const activityDescription = activity.activity_description || activity.activity_name || activity.activity || 'N/A'
+        const activityDescription = activity.activity_description || 'N/A'
         
         return (
           <div className="space-y-1">
@@ -1843,8 +1841,6 @@ export function BOQTableWithCustomization({
         // ✅ FIX: Get scope from project_type_activities table (same source as Project Types & Activities Management)
         // 1. Get activity description (merged from Activity and Activity Name)
         const activityName = activity.activity_description || 
-                             activity.activity_name || 
-                             activity.activity || 
                              (activity as any).raw?.['Activity Description'] ||
                              (activity as any).raw?.['Activity Name'] ||
                              (activity as any).raw?.['Activity'] ||
@@ -2145,7 +2141,7 @@ export function BOQTableWithCustomization({
             matchedActualCount = actualKPIs.filter((kpi: any) => kpiMatchesActivityStrict(kpi, activity)).length
           }
           
-          console.log(`📊 [BOQ Quantities] "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
+          console.log(`📊 [BOQ Quantities] "${activity.activity_description || ''}" (Zone: ${activityZone || 'N/A'}):`, {
             totalUnits,
             plannedUnits,
             cappedPlanned,
@@ -2205,8 +2201,8 @@ export function BOQTableWithCustomization({
           unitRate = activity.total_value / activity.actual_units
         }
         // Priority 5: Get estimated_rate from project_type_activities table
-        else if (activity.activity_name) {
-          const activityName = activity.activity_name
+        else if (activity.activity_description) {
+          const activityName = activity.activity_description
           const activityNameLower = activityName.toLowerCase().trim()
           
           // Try exact match first
@@ -2389,8 +2385,8 @@ export function BOQTableWithCustomization({
           rateProgress = activity.total_value / activity.planned_units
         } else if (activity.total_value && activity.actual_units && activity.actual_units > 0) {
           rateProgress = activity.total_value / activity.actual_units
-        } else if (activity.activity_name) {
-          const activityNameProgress = activity.activity_name
+        } else if (activity.activity_description) {
+          const activityNameProgress = activity.activity_description
           const activityNameLowerProgress = activityNameProgress.toLowerCase().trim()
           let estimatedRateProgress = activityRatesMap.get(activityNameProgress)
           if (!estimatedRateProgress || estimatedRateProgress === 0) {
@@ -2431,7 +2427,7 @@ export function BOQTableWithCustomization({
         
         // ✅ DEBUG: Log in development mode
         if (process.env.NODE_ENV === 'development') {
-          console.log(`📊 [Progress Summary] "${activity.activity_name}":`, {
+          console.log(`📊 [Progress Summary] "${activity.activity_description || ''}":`, {
             totalValue: totalValueProgress,
             plannedValue: plannedValueProgress,
             actualValue: actualValueProgress,
@@ -2541,7 +2537,7 @@ export function BOQTableWithCustomization({
         }
         // Priority 5: Get estimated_rate from project_type_activities table
         else {
-          const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+          const activityDescription = activity.activity_description || ''
           if (activityDescription) {
             const activityName = activityDescription
             const activityNameLower = activityName.toLowerCase().trim()
@@ -2576,7 +2572,7 @@ export function BOQTableWithCustomization({
         
         // ✅ DEBUG: Log calculation in development
         if (process.env.NODE_ENV === 'development') {
-          console.log(`💰 [BOQ] Work Value Status for "${activity.activity_name}":`, {
+          console.log(`💰 [BOQ] Work Value Status for "${activity.activity_description || ''}":`, {
             totalUnits: totalUnitsWorkValue,
             plannedQuantity,
             cappedPlannedQuantity,
@@ -2677,8 +2673,8 @@ export function BOQTableWithCustomization({
           rateStatus = activity.total_value / activity.planned_units
         } else if (activity.total_value && activity.actual_units && activity.actual_units > 0) {
           rateStatus = activity.total_value / activity.actual_units
-        } else if (activity.activity_name) {
-          const activityNameStatus = activity.activity_name
+        } else if (activity.activity_description) {
+          const activityNameStatus = activity.activity_description
           const activityNameLowerStatus = activityNameStatus.toLowerCase().trim()
           let estimatedRateStatus = activityRatesMap.get(activityNameStatus)
           if (!estimatedRateStatus || estimatedRateStatus === 0) {
@@ -2772,7 +2768,7 @@ export function BOQTableWithCustomization({
         
         // ✅ DEBUG: Log calculation in development
         if (process.env.NODE_ENV === 'development') {
-          console.log(`📊 [BOQ] Activity Status (based on Progress Summary) for "${activity.activity_name}":`, {
+          console.log(`📊 [BOQ] Activity Status (based on Progress Summary) for "${activity.activity_description || ''}":`, {
             status,
             plannedProgress: plannedProgressStatus.toFixed(1) + '%',
             actualProgress: actualProgressStatus.toFixed(1) + '%',
@@ -3231,7 +3227,7 @@ export function BOQTableWithCustomization({
     
     switch (columnId) {
       case 'activity_details':
-        return activity.activity_description || activity.activity_name || activity.activity || getField('Activity Description') || getField('Activity Name') || getField('Activity') || ''
+        return activity.activity_description || getField('Activity Description') || getField('Activity Name') || ''
       case 'quantities':
         return parseFloat(String(activity.planned_units || getField('Planned Units') || '0').replace(/,/g, '')) || 0
       case 'activity_value':

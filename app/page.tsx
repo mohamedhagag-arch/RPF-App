@@ -5,6 +5,8 @@ import { LoginForm } from '@/components/auth/LoginForm'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState, useRef } from 'react'
+import { useMaintenanceMode } from '@/hooks/useMaintenanceMode'
+import { MaintenancePage } from '@/components/maintenance/MaintenancePage'
 
 /**
  * Home page component
@@ -14,13 +16,14 @@ import { useEffect, useState, useRef } from 'react'
  * - ينتظر loading قبل أي redirect
  */
 export default function Home() {
-  const { user, loading } = useAuth()
+  const { user, loading, appUser } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
   const [shouldRender, setShouldRender] = useState(false)
   const hasChecked = useRef(false)
   const hasRedirected = useRef(false)
   const redirectTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const { enabled: maintenanceEnabled, loading: maintenanceLoading, message, estimatedTime } = useMaintenanceMode()
   
   // Check if we're on home route
   useEffect(() => {
@@ -102,8 +105,8 @@ export default function Home() {
     return null
   }
 
-  // Show loading while checking auth state
-  if (loading) {
+  // Show loading while checking auth state or maintenance mode
+  if (loading || maintenanceLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
@@ -112,6 +115,11 @@ export default function Home() {
         </div>
       </div>
     )
+  }
+
+  // ✅ Check maintenance mode - if enabled and user is not admin, show maintenance page
+  if (maintenanceEnabled && appUser?.role !== 'admin') {
+    return <MaintenancePage message={message} estimatedTime={estimatedTime} />
   }
 
   // If user exists, show redirecting message

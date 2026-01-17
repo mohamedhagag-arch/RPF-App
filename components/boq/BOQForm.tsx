@@ -28,7 +28,6 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
     activity_division: '',
     unit: '',
     zone_number: '0',
-    zone_number: '',
     
     // ✅ Quantities (User Input)
     total_units: 0,
@@ -72,12 +71,11 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
         project_code: activity.project_code,
         project_sub_code: activity.project_sub_code || '',
         project_full_code: activity.project_full_code || '',
-        activity: activity.activity,
-        activity_name: activity.activity_name,
+        activity: activity.activity_description || '',
+        activity_name: activity.activity_description || '',
         activity_division: activity.activity_division || '',
         unit: activity.unit || '',
         zone_number: activity.zone_number || '0',
-        zone_number: activity.zone_number || '',
         
         // ✅ Quantities
         total_units: activity.total_units,

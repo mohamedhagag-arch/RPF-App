@@ -943,7 +943,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     
     // PRIORITY 1: Get from first Planned KPI Date column (same as table)
     if (allKPIs && allKPIs.length > 0) {
-      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       const activityZone = getActivityZone(activity)
@@ -1478,8 +1478,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         minAveragePerDay: minAvgPerDay, // ✅ Smallest whole number
         maxAveragePerDay: maxAvgPerDay, // ✅ Largest whole number
         hasDecimalAverage: hasDecimal, // ✅ Whether average has decimal part
-        startDate: kpis.length > 0 ? kpis[0].target_date : '',
-        endDate: kpis.length > 0 ? kpis[kpis.length - 1].target_date : '',
+        startDate: kpis.length > 0 ? kpis[0].activity_date : '',
+        endDate: kpis.length > 0 ? kpis[kpis.length - 1].activity_date : '',
         activityTiming: activityTiming,
         hasValue: hasValue,
         affectsTimeline: affectsTimeline,
@@ -1875,7 +1875,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           console.log('🗑️ Activity changed to post-completion - deleting existing KPIs...')
           const { updateExistingKPIs } = await import('@/lib/autoKPIGenerator')
           // Pass empty activity data to trigger deletion of all KPIs
-          const deleteResult = await updateExistingKPIs(activityData, activity.activity_name, workdaysConfig)
+          const deleteResult = await updateExistingKPIs(activityData, activity.activity_description || '', workdaysConfig)
           
           if (deleteResult.success) {
             setSuccess(`✅ Activity updated! ${deleteResult.deletedCount || 0} KPIs removed (post-completion activity).`)
@@ -1902,7 +1902,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           console.log('🔄 UPDATING KPIs for existing activity (any change triggers update)...')
           console.log('📦 Activity to update:', {
             id: activity.id,
-            old_activity_name: activity.activity_name, // ✅ OLD name
+            old_activity_name: activity.activity_description || '', // ✅ OLD name
             new_activity_name: activityData.activity_name, // ✅ NEW name
             old_timing: activity.activity_timing,
             new_timing: activityData.activity_timing,
@@ -1946,7 +1946,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           if (freshKPIs && freshKPIs.length > 0) {
             console.log(`✅ Generated ${freshKPIs.length} fresh KPIs from updated data`)
             // ✅ UPDATE MODE: Update existing KPIs with fresh data
-            const updateResult = await updateExistingKPIs(activityData, activity.activity_name, workdaysConfig)
+            const updateResult = await updateExistingKPIs(activityData, activity.activity_description || '', workdaysConfig)
             
             if (updateResult.success) {
               setSuccess(`✅ Activity updated! ${updateResult.message}`)
@@ -1958,7 +1958,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           } else {
             console.warn('⚠️ No KPIs generated from updated data - may be invalid dates or no workdays')
             // Still try to update existing KPIs (they might need to be deleted if timing changed)
-            const updateResult = await updateExistingKPIs(activityData, activity.activity_name, workdaysConfig)
+            const updateResult = await updateExistingKPIs(activityData, activity.activity_description || '', workdaysConfig)
             if (updateResult.success) {
               setSuccess(`✅ Activity updated! ${updateResult.message}`)
               
@@ -2130,12 +2130,12 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             console.log('✅ Setting created_by for generated KPIs:', createdByValue)
             
             // ✅ Show notification if default date was used
-            if (result.defaultDateUsed) {
+            if ((result as any).defaultDateUsed) {
               setError('⚠️ Warning: Some KPIs were created with default date (2025-12-31) because Activity Date was empty. Please verify activity dates.')
             }
             
             if (result.success) {
-              const successMsg = result.defaultDateUsed 
+              const successMsg = (result as any).defaultDateUsed 
                 ? `✅ Activity created with ${result.savedCount} KPI records! (Note: Some KPIs used default date)`
                 : `✅ Activity created with ${result.savedCount} KPI records!`
               setSuccess(successMsg)

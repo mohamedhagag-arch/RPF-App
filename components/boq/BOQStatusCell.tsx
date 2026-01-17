@@ -36,7 +36,7 @@ export function BOQStatusCell({ activity }: BOQStatusCellProps) {
 
     const fetchKPIStatus = async () => {
       // Prevent duplicate requests
-      const fetchKey = `${activity.project_code}-${activity.activity_name}`
+      const fetchKey = `${activity.project_code}-${activity.activity_description || ''}`
       if (loading || lastFetchRef.current === fetchKey) return
       
       lastFetchRef.current = fetchKey
@@ -48,7 +48,7 @@ export function BOQStatusCell({ activity }: BOQStatusCellProps) {
           .from(TABLES.KPI)
           .select('*')
           .eq('Project Full Code', activity.project_code)
-          .eq('Activity Name', activity.activity_name)
+          .eq('Activity Name', activity.activity_description || '')
 
         if (isCancelled) return
 
@@ -62,7 +62,7 @@ export function BOQStatusCell({ activity }: BOQStatusCellProps) {
           if (isCancelled) return
           
           if (allKPIs && allKPIs.length > 0) {
-            const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
+            const activityNameLower = (activity.activity_description || '').toLowerCase().trim()
             kpiRecords = allKPIs.filter(kpi => {
               const kpiActivityName = (kpi['Activity Name'] as string || '').toLowerCase().trim()
               return kpiActivityName.includes(activityNameLower) || 
@@ -81,7 +81,7 @@ export function BOQStatusCell({ activity }: BOQStatusCellProps) {
 
           const progress = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
 
-          console.log(`📊 Status for ${activity.activity_name}:`, {
+          console.log(`📊 Status for ${activity.activity_description || ''}:`, {
             plannedKPIs: planned.length,
             actualKPIs: actual.length,
             totalPlanned,
@@ -143,7 +143,7 @@ export function BOQStatusCell({ activity }: BOQStatusCellProps) {
       mountedRef.current = false
       isCancelled = true
     }
-  }, [activity.project_code, activity.activity_name])
+  }, [activity.project_code, activity.activity_description])
 
   const Icon = status.icon
 

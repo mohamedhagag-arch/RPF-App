@@ -235,8 +235,7 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
                 </div>
               </td>
               <td className="px-6 py-4">
-                <div className="text-sm text-gray-900 dark:text-gray-100 font-medium mb-1">{activity.activity_name}</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">{activity.activity}</div>
+                <div className="text-sm text-gray-900 dark:text-gray-100 font-medium mb-1">{activity.activity_description}</div>
                 <BOQWithKPIStatus activity={activity} allKPIs={allKPIs} />
               </td>
               <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-gray-100 w-24">

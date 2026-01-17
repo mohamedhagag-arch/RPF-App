@@ -53,7 +53,7 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
           .from(TABLES.KPI)
           .select('*')
           .eq('Project Full Code', activity.project_code)
-          .eq('Activity Name', activity.activity_name)
+          .eq('Activity Name', activity.activity_description || '')
 
         if (isCancelled) return
 
@@ -68,7 +68,7 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
           
           // Try to match by activity name (case insensitive, partial match)
           if (allProjectKPIs && allProjectKPIs.length > 0) {
-            const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
+            const activityNameLower = (activity.activity_description || '').toLowerCase().trim()
             kpiRecords = allProjectKPIs.filter(kpi => {
               const kpiActivityName = (kpi['Activity Name'] as string || '').toLowerCase().trim()
               return kpiActivityName.includes(activityNameLower) || 
@@ -102,7 +102,7 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
           try {
             const actualFromKPI = await calculateActualFromKPI(
               activity.project_code || '',
-              activity.activity_name || ''
+              activity.activity_description || ''
             )
             
             if (!isCancelled) {
@@ -137,12 +137,12 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
     return () => {
       isCancelled = true
     }
-  }, [activity.project_code, activity.activity_name, allKPIs])
+  }, [activity.project_code, activity.activity_description, allKPIs])
   
   // Helper function to process KPI data
   const processKPIData = (kpiRecords: any[]) => {
     // Filter KPIs for this activity
-    const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
+    const activityNameLower = (activity.activity_description || '').toLowerCase().trim()
     const activityKPIs = kpiRecords.filter(kpi => {
       const matchesProject = kpi.project_full_code === activity.project_code ||
                             kpi.project_full_code?.startsWith(activity.project_code)
@@ -160,7 +160,7 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
       const totalPlanned = planned.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
       const totalActual = actual.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
 
-      console.log(`📊 KPI Data for ${activity.activity_name}:`, {
+      console.log(`📊 KPI Data for ${activity.activity_description || ''}:`, {
         planned: { count: planned.length, quantity: totalPlanned },
         actual: { count: actual.length, quantity: totalActual }
       })
@@ -196,7 +196,7 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
   )
 
   console.log('🔍 BOQWithKPIStatus Progress Calculation:', {
-    activityName: activity.activity_name,
+    activityName: activity.activity_description || '',
     plannedUnits: activity.planned_units,
     actualUnits: activity.actual_units,
     totalValue: activity.total_value,

@@ -802,6 +802,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         
         const rawKPIDate = (kpi as any).raw || {}
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        const targetDateValue = rawKPIDate['Target Date'] || ''
         
         let kpiDateStr = ''
         if (kpi.input_type === 'Planned' && targetDateValue) {
@@ -948,7 +949,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       '0'
     ).toString().toLowerCase().trim()
     
-    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+    const activityName = (activity.activity_description || '').toLowerCase().trim()
     const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
     const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
     
@@ -1149,6 +1150,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
         const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        const targetDateValue = rawKPIDate['Target Date'] || ''
         
         let kpiDateStr = ''
         if (kpi.input_type === 'Actual' && actualDateValue) {
@@ -1369,6 +1371,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         // ? Use EXACT SAME LOGIC as calculatePeriodPlannedValue
         const rawKPIDate = (kpi as any).raw || {}
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        const targetDateValue = rawKPIDate['Target Date'] || ''
         
         let kpiDateStr = ''
         if (kpi.input_type === 'Planned' && targetDateValue) {
@@ -1735,6 +1738,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         
         const rawKPIDate = (kpi as any).raw || {}
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        const targetDateValue = rawKPIDate['Target Date'] || ''
         
         let kpiDateStr = ''
         if (kpi.input_type === 'Planned' && targetDateValue) {
@@ -1958,6 +1962,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         const rawKPIDate = (kpi as any).raw || {}
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        const targetDateValue = rawKPIDate['Target Date'] || ''
         
         let kpiDateStr = ''
         if (kpi.input_type === 'Planned' && targetDateValue) {
@@ -2011,7 +2016,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           
           if (kpiActivityName && kpiProjectFullCode && kpiZone) {
             relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityName = (a.activity_description || '').toLowerCase().trim()
               const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
               const rawActivity = (a as any).raw || {}
               const activityZone = (a.zone_number || rawActivity['Zone Number'] || '0').toString().toLowerCase().trim()
@@ -2022,14 +2027,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
             relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityName = (a.activity_description || '').toLowerCase().trim()
               const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
               return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
             })
           }
           if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
             relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityName = (a.activity_description || '').toLowerCase().trim()
               const activityProjectCode = (a.project_code || '').toLowerCase().trim()
               const rawActivity = (a as any).raw || {}
               const activityZone = (a.zone_number || rawActivity['Zone Number'] || '0').toString().toLowerCase().trim()
@@ -2040,14 +2045,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!relatedActivity && kpiActivityName && kpiProjectCode) {
             relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityName = (a.activity_description || '').toLowerCase().trim()
               const activityProjectCode = (a.project_code || '').toLowerCase().trim()
               return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
             })
           }
           if (!relatedActivity && kpiActivityName) {
             relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityName = (a.activity_description || '').toLowerCase().trim()
               return activityName === kpiActivityName
             })
           }
@@ -5470,8 +5475,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         // Only remove true duplicates (same name + same zone + same project)
                         const seenActivities = new Set<string>()
                         projectActivities = projectActivities.filter((activity: BOQActivity) => {
-                          const activityName = (activity.activity_name || activity.activity || '').toString().trim().toUpperCase()
-                          const activityZone = (activity.zone_ref || activity.zone_number || (activity as any).raw?.['Zone Ref'] || (activity as any).raw?.['Zone Number'] || '').toString().trim().toUpperCase()
+                          const activityName = (activity.activity_description || '').toString().trim().toUpperCase()
+                          const activityZone = (activity.zone_number || (activity as any).raw?.['Zone Number'] || '').toString().trim().toUpperCase()
                           const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
                           // ✅ FIX: Include zone in unique key - different zones = different activities
                           const uniqueKey = `${activityFullCode}|${activityName}|${activityZone}`
@@ -5517,7 +5522,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                 '0'
                               ).toString().trim()
                               // ✅ FIX: Create unique activityId that includes activity name, project code, and zone to ensure each activity-zone combination has unique calculations
-                              const activityNameForId = (activity.activity_name || activity.activity || 'N/A').toString().trim()
+                              const activityNameForId = (activity.activity_description || 'N/A').toString().trim()
                               const activityId = activity.id || `${activityNameForId}-${projectFullCode}-${activityZone || 'nozone'}-${activity.id || ''}`
                               const cachedActivityValues = getCachedActivityPeriodValues(activityId, activity, project, projectFullCode)
                               const activityPeriodValues = cachedActivityValues.earned || []
@@ -5533,11 +5538,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                               const activityTotalPlannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue ? activityPeriodPlannedVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0) : 0
                               
                               return (
-                                <tr key={`${activity.id || activity.activity_name}-${project.id}`} className="bg-gray-50 dark:bg-gray-800/30 hover:bg-gray-100 dark:hover:bg-gray-700/50">
+                                <tr key={`${activity.id || activity.activity_description || ''}-${project.id}`} className="bg-gray-50 dark:bg-gray-800/30 hover:bg-gray-100 dark:hover:bg-gray-700/50">
                                   <td className="border border-gray-300 dark:border-gray-600 px-4 py-2"></td>
                                   <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 sticky left-0 z-10 bg-gray-50 dark:bg-gray-800/30" style={{ width: '200px' }}>
                                     <div className="text-sm text-gray-700 dark:text-gray-300">
-                                      <p className="font-medium">{activity.activity_name || activity.activity || 'N/A'}</p>
+                                      <p className="font-medium">{activity.activity_description || 'N/A'}</p>
                                       {(() => {
                                         const activityZone = activity.zone_number || (rawActivity['Zone Number'] || '0')
                                         return activityZone ? (

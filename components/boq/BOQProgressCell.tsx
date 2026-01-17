@@ -37,7 +37,7 @@ export function BOQProgressCell({ activity, allKPIs }: BOQProgressCellProps) {
 
     const fetchKPIProgress = async () => {
       // Prevent duplicate requests
-      const fetchKey = `${activity.project_code}-${activity.activity_name}`
+      const fetchKey = `${activity.project_code}-${activity.activity_description || ''}`
       if (loading || lastFetchRef.current === fetchKey) return
       
       lastFetchRef.current = fetchKey
@@ -49,7 +49,7 @@ export function BOQProgressCell({ activity, allKPIs }: BOQProgressCellProps) {
           .from(TABLES.KPI)
           .select('*')
           .eq('Project Full Code', activity.project_code)
-          .eq('Activity Name', activity.activity_name)
+          .eq('Activity Name', activity.activity_description || '')
 
         if (isCancelled) return
 
@@ -63,7 +63,7 @@ export function BOQProgressCell({ activity, allKPIs }: BOQProgressCellProps) {
           if (isCancelled) return
           
           if (allKPIs && allKPIs.length > 0) {
-            const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
+            const activityNameLower = (activity.activity_description || '').toLowerCase().trim()
             kpiRecords = allKPIs.filter(kpi => {
               const kpiActivityName = (kpi['Activity Name'] as string || '').toLowerCase().trim()
               return kpiActivityName.includes(activityNameLower) || 
@@ -85,7 +85,7 @@ export function BOQProgressCell({ activity, allKPIs }: BOQProgressCellProps) {
           const earnedValue = rate.rate * totalActual
           const progress = rate.plannedValue > 0 ? (earnedValue / rate.plannedValue) * 100 : 0
           
-          console.log(`📊 Progress for ${activity.activity_name}:`, {
+          console.log(`📊 Progress for ${activity.activity_description || ''}:`, {
             plannedKPIs: planned.length,
             actualKPIs: actual.length,
             totalPlanned,
@@ -121,11 +121,11 @@ export function BOQProgressCell({ activity, allKPIs }: BOQProgressCellProps) {
       mountedRef.current = false
       isCancelled = true
     }
-  }, [activity.project_code, activity.activity_name, allKPIs])
+  }, [activity.project_code, activity.activity_description, allKPIs])
   
   // Helper to calculate progress from pre-loaded KPIs
   const calculateProgressFromKPIs = (kpis: any[]) => {
-    const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
+    const activityNameLower = (activity.activity_description || '').toLowerCase().trim()
     const activityKPIs = kpis.filter(kpi => {
       const matchesProject = kpi.project_full_code === activity.project_code ||
                             kpi.project_full_code?.startsWith(activity.project_code)

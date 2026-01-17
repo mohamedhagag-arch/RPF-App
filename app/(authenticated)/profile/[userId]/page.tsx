@@ -319,7 +319,7 @@ export default function UserProfilePage() {
         if (fallbackActivities) {
           setCurrentActivities(fallbackActivities.map((a: any) => ({
             id: a.id,
-            activity_name: a.activity_name || a.activity,
+            activity_name: a.activity_description || a.activity_name || a.activity,
             project_name: a.project_full_name || a.project_name,
             activity_status: a.activity_actual_status || a.activity_status || 'in_progress',
             progress: a.activity_progress_percentage || a.progress || 0,

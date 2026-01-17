@@ -52,7 +52,7 @@ export function SmartBOQForm({ activity, projects, onSubmit, onCancel }: SmartBO
       setIsEditing(true)
       setFormData({
         project_code: activity.project_code || '',
-        activity_name: activity.activity_name || '',
+        activity_name: activity.activity_description || '',
         activity_division: activity.activity_division || '',
         unit: activity.unit || '',
         total_units: activity.total_units || 0,
@@ -333,7 +333,7 @@ export function SmartBOQForm({ activity, projects, onSubmit, onCancel }: SmartBO
                 <div>
                   <span className="text-gray-600 dark:text-gray-400">Activity:</span>
                   <div className="font-medium text-gray-900 dark:text-white mt-0.5">
-                    {activity.activity_name}
+                    {activity.activity_description}
                   </div>
                 </div>
                 <div>
