@@ -25,6 +25,7 @@ interface PendingKPI {
   project_code?: string
   activity_name?: string
   activity_description?: string // ✅ Activity description field
+  activity_date?: string // ✅ Activity date field (snake_case)
   quantity?: number | string
   unit?: string
   target_date?: string
