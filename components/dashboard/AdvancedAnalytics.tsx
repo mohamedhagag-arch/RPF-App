@@ -172,11 +172,13 @@ export function AdvancedAnalytics({ projects, activities, kpis }: AdvancedAnalyt
   const riskAnalysis = useMemo(() => {
     const now = new Date()
     const overdueKPIs = kpis.filter(k => {
-      const activityDate = k.activity_date || k.target_date
+      // Use activity_date which is the unified date field in KPIRecord
+      const activityDate = k.activity_date
       return k.status !== 'completed' && activityDate && new Date(activityDate) < now
     }).length
     const todayKPIs = kpis.filter(k => {
-      const activityDate = k.activity_date || k.target_date
+      // Use activity_date which is the unified date field in KPIRecord
+      const activityDate = k.activity_date
       return activityDate === now.toISOString().split('T')[0] && k.status !== 'completed'
     }).length
     
