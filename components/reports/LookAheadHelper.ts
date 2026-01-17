@@ -102,27 +102,14 @@ export function isKPIUntilYesterday(kpi: any, inputType: 'planned' | 'actual'): 
   const raw = (kpi as any).raw || {}
   let kpiDateStr = ''
   
-  if (inputType === 'planned') {
-    kpiDateStr = raw['Date'] ||
-                kpi.date ||
-                kpi.target_date || 
-                kpi.activity_date || 
-                raw['Target Date'] || 
-                raw['Activity Date'] ||
-                kpi['Target Date'] || 
-                kpi['Activity Date'] ||
-                kpi.created_at ||
-                ''
-  } else {
-    kpiDateStr = kpi.actual_date || 
-                kpi.activity_date || 
-                kpi['Actual Date'] || 
-                kpi['Activity Date'] || 
-                raw['Actual Date'] || 
-                raw['Activity Date'] ||
-                kpi.created_at ||
-                ''
-  }
+  // Use Activity Date (filtered by Input Type)
+  kpiDateStr = kpi.activity_date || 
+              kpi['Activity Date'] || 
+              raw['Activity Date'] ||
+              raw['Date'] ||
+              kpi.date ||
+              kpi.created_at ||
+              ''
   
   if (!kpiDateStr) return true // If no date, include it
   
@@ -180,11 +167,8 @@ export function calculateActivityLookAhead(
     // Count unique dates
     actualKPIsUntilYesterday.forEach((kpi: any) => {
       const raw = (kpi as any).raw || {}
-      const kpiDateStr = kpi.actual_date || 
-                        kpi.activity_date || 
-                        kpi['Actual Date'] || 
+      const kpiDateStr = kpi.activity_date || 
                         kpi['Activity Date'] || 
-                        raw['Actual Date'] || 
                         raw['Activity Date'] ||
                         kpi.created_at ||
                         ''

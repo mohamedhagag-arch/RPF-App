@@ -643,20 +643,14 @@ export function EnhancedSmartActualKPIForm({
     if (inputType === 'planned') {
       kpiDateStr = rawKPI['Date'] ||
                   kpi.date ||
-                  kpi.target_date || 
                   kpi.activity_date || 
-                  rawKPI['Target Date'] || 
                   rawKPI['Activity Date'] ||
-                  kpi['Target Date'] || 
                   kpi['Activity Date'] ||
                   kpi.created_at ||
                   ''
     } else {
-      kpiDateStr = kpi.actual_date || 
-                  kpi.activity_date || 
-                  kpi['Actual Date'] || 
+      kpiDateStr = kpi.activity_date || 
                   kpi['Activity Date'] || 
-                  rawKPI['Actual Date'] || 
                   rawKPI['Activity Date'] ||
                   kpi.created_at ||
                   ''
@@ -1158,7 +1152,7 @@ export function EnhancedSmartActualKPIForm({
         // Fetch all KPIs (Planned and Actual) for this project
         let query = supabase
           .from(TABLES.KPI)
-          .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code", "Date", "Target Date", "Activity Date", "Actual Date", created_at, input_type, quantity, date, target_date, activity_date, actual_date, project_code, project_full_code, activity_name')
+          .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code", "Date", "Activity Date", created_at, input_type, quantity, date, activity_date, project_code, project_full_code, activity_name')
         
         // Filter by Project Full Code if available
         if (projectFullCode) {
@@ -1465,9 +1459,7 @@ export function EnhancedSmartActualKPIForm({
         'Quantity': '0',
         'Unit': activity.unit || '',
         'Input Type': 'Actual',
-        'Actual Date': finalDate,
-        'Activity Date': finalDate,
-        'Target Date': finalDate || '',
+        'Activity Date': finalDate, // ✅ Map Actual Date to Activity Date (unified field)
         'Drilled Meters': '0',
         'Section': '', // ✅ Section is completely separate from Zone - leave empty
         'Zone': activity.zone_ref || '', // ✅ Zone comes from activity.zone_ref
@@ -1536,9 +1528,7 @@ export function EnhancedSmartActualKPIForm({
         'Quantity': quantityValue.toString(), // Use validated quantity
         'Unit': formData.unit || selectedActivity?.unit || '',
         'Input Type': 'Actual',
-        'Actual Date': finalDate,
-        'Activity Date': finalDate,
-        'Target Date': finalDate || '', // ✅ Include Target Date (same as Planned)
+        'Activity Date': finalDate, // ✅ Map Actual Date to Activity Date (unified field)
         'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Drilled Meters': formData.drilled_meters?.toString() || '0',
         // ✅ Section, Zone, and Zone Number are separate fields
@@ -2757,7 +2747,7 @@ export function EnhancedSmartActualKPIForm({
                                   <td className="px-4 py-4">
                                     {hasWorked ? (
                                       <div className="text-sm text-gray-900 dark:text-white">
-                                        {data['Actual Date'] || data.actual_date ? `${formatDate(data['Actual Date'] || data.actual_date)} - ${new Date(data['Actual Date'] || data.actual_date).toLocaleDateString('en-US', { weekday: 'short' })}` : 'N/A'}
+                                        {data['Activity Date'] || data.activity_date ? `${formatDate(data['Activity Date'] || data.activity_date)} - ${new Date(data['Activity Date'] || data.activity_date).toLocaleDateString('en-US', { weekday: 'short' })}` : 'N/A'}
                                       </div>
                                     ) : isNotWorkedOn ? (
                                       <div className="text-sm text-orange-600 dark:text-orange-400 italic">
@@ -3374,7 +3364,7 @@ export function EnhancedSmartActualKPIForm({
                     activity_id: selectedActivity.id,
                     quantity: parseFloat(quantity) || 0,
                     unit,
-                    actual_date: actualDate,
+                    activity_date: actualDate, // ✅ Map to Activity Date (unified field)
                     drilled_meters: drilledMeters ? parseFloat(drilledMeters) : null,
                     recorded_by: 'Engineer'
                   })}

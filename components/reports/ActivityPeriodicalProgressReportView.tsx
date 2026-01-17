@@ -44,20 +44,10 @@ export function ActivityPeriodicalProgressReportView({
   const getKPIDate = (kpi: any): Date | null => {
     const raw = (kpi as any).raw || {}
     const dayValue = (kpi as any).day || raw['Day'] || ''
-    const actualDateValue = kpi.actual_date || raw['Actual Date'] || ''
-    const targetDateValue = kpi.target_date || raw['Target Date'] || ''
     const activityDateValue = kpi.activity_date || raw['Activity Date'] || ''
     
-    let dateStr = ''
-    if (kpi.input_type === 'Actual' && actualDateValue) {
-      dateStr = actualDateValue
-    } else if (kpi.input_type === 'Planned' && targetDateValue) {
-      dateStr = targetDateValue
-    } else if (dayValue) {
-      dateStr = activityDateValue || dayValue
-    } else {
-      dateStr = activityDateValue || actualDateValue || targetDateValue
-    }
+    // Use Activity Date (filtered by Input Type in queries)
+    let dateStr = activityDateValue || dayValue
     
     if (!dateStr) return null
     

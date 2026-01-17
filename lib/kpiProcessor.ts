@@ -17,8 +17,7 @@ export interface ProcessedKPI {
   actual_value: number
   // Data fields for reports
   unit?: string
-  target_date: string
-  activity_date?: string
+  activity_date: string // ✅ Unified date field (replaces target_date)
   // Calculated fields
   status: 'excellent' | 'good' | 'average' | 'low'
   performance_level: number
@@ -92,8 +91,7 @@ export function processKPIRecord(kpi: any): ProcessedKPI & { raw?: any } {
     actual_value: actualValue,
     // Data fields for reports
     unit: kpi.unit || '',
-    target_date: kpi.target_date || kpi.created_at || '',
-    activity_date: kpi.activity_date || kpi.target_date || kpi.actual_date || kpi.created_at || '',
+    activity_date: kpi.activity_date || kpi.created_at || '',
     // Calculated fields
     status: smartStatus.status,
     performance_level: smartStatus.performance_level,

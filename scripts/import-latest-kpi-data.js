@@ -95,7 +95,7 @@ async function importData() {
     'Section': row['Zone #'] || '',
     'Drilled Meters': row['Drilled Meters'] || '0',
     'Unit': '',
-    'Target Date': parseDate(row['Planned Date']),
+    'Activity Date': parseDate(row['Planned Date'] || row['Activity Date'] || row['Target Date']) || '2025-12-31', // ✅ Map to Activity Date (unified field, DATE type)
     'Value': parseFloat(row['Value'].replace(/[^0-9.-]/g, '')) || 0,
     'Notes': `Day: ${row['Day'] || ''}`
   }))
@@ -133,7 +133,7 @@ async function importData() {
     'Section': row['Zone #'] || '',
     'Drilled Meters': row['Drilled Meters'] || '0',
     'Unit': '',
-    'Actual Date': parseDate(row['Actual Date']),
+    'Activity Date': parseDate(row['Actual Date'] || row['Activity Date'] || row['Target Date']) || '2025-12-31', // ✅ Map to Activity Date (unified field, DATE type)
     'Value': parseFloat(row['Value'].replace(/[^0-9.-]/g, '')) || 0,
     'Recorded By': '',
     'Notes': `Day: ${row['Day'] || ''}`
@@ -175,28 +175,84 @@ async function importData() {
   console.log(`\n🎉 Import Complete!`)
 }
 
+// ✅ Enhanced date parsing for DATE type column - handles multiple formats
 function parseDate(dateStr) {
-  if (!dateStr || dateStr === 'Actual' || dateStr === 'Planned') return null
+  const defaultValue = '2025-12-31'; // Default date for NULL values (DATE type requires non-null)
   
-  // Format: "6-Jan-25" or "18-Jun-25"
-  try {
-    const parts = dateStr.split('-')
-    if (parts.length !== 3) return null
-    
-    const day = parts[0].padStart(2, '0')
-    const monthMap = {
-      'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
-      'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
-      'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
-    }
-    const month = monthMap[parts[1]]
-    const year = '20' + parts[2]
-    
-    if (!month) return null
-    return `${year}-${month}-${day}`
-  } catch (err) {
-    return null
+  if (!dateStr || dateStr === 'Actual' || dateStr === 'Planned' || dateStr === 'N/A' || dateStr === '#ERROR!') {
+    return defaultValue;
   }
+  
+  const dateValue = String(dateStr).trim();
+  
+  // Format 1: Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(dateValue)) {
+    const match = dateValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const [, year, month, day] = match;
+      const yearNum = parseInt(year, 10);
+      if (yearNum >= 1900 && yearNum <= 2100) {
+        return `${year}-${month}-${day}`;
+      }
+    }
+  }
+  
+  // Format 2: DD-MMM-YY (e.g., "6-Jan-25", "18-Jun-25")
+  const ddmmyyMatch = dateValue.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2})$/);
+  if (ddmmyyMatch) {
+    try {
+      const [, day, monthStr, yearStr] = ddmmyyMatch;
+      const monthMap = {
+        'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
+        'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
+        'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+      };
+      const month = monthMap[monthStr];
+      const year = '20' + yearStr;
+      
+      if (month) {
+        return `${year}-${month}-${String(parseInt(day, 10)).padStart(2, '0')}`;
+      }
+    } catch (err) {
+      // Fall through
+    }
+  }
+  
+  // Format 3: MM/DD/YYYY or M/D/YYYY
+  const mmddyyyyMatch = dateValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mmddyyyyMatch) {
+    const [, month, day, year] = mmddyyyyMatch;
+    const monthNum = parseInt(month, 10);
+    const dayNum = parseInt(day, 10);
+    const yearNum = parseInt(year, 10);
+    if (monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31 && yearNum >= 1900 && yearNum <= 2100) {
+      return `${year}-${String(monthNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+    }
+  }
+  
+  // Format 4: YYYYMMDD (8 digits)
+  if (/^\d{8}$/.test(dateValue)) {
+    const year = dateValue.substring(0, 4);
+    const month = dateValue.substring(4, 6);
+    const day = dateValue.substring(6, 8);
+    const yearNum = parseInt(year, 10);
+    if (yearNum >= 1900 && yearNum <= 2100) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+  
+  // Format 5: Try JavaScript Date parsing as fallback
+  try {
+    const date = new Date(dateValue);
+    if (!isNaN(date.getTime()) && date.getFullYear() >= 1900 && date.getFullYear() <= 2100) {
+      return date.toISOString().split('T')[0];
+    }
+  } catch (err) {
+    // Fall through to default
+  }
+  
+  // Default: return default date if all parsing fails
+  return defaultValue;
 }
 
 importData()

@@ -642,18 +642,14 @@ export function BOQTableWithCustomization({
         matchingKPIs.forEach((kpi: any) => {
           const rawKPI = (kpi as any).raw || {}
           
-          // Get Date from Date column (priority: target_date > activity_date > raw['Date'])
+          // Get Date from Activity Date column (for Planned KPIs, filtered by Input Type = 'Planned')
           let kpiDateStr = ''
-          if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
-            kpiDateStr = kpi.target_date.toString().trim()
-          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+          if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
             kpiDateStr = kpi.activity_date.toString().trim()
-          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Date'].toString().trim()
-          } else if (rawKPI['Target Date'] && rawKPI['Target Date'].toString().trim() !== '' && rawKPI['Target Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Target Date'].toString().trim()
           } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
           }
           
           if (kpiDateStr) {
@@ -689,7 +685,7 @@ export function BOQTableWithCustomization({
               allDates: validDates.map(d => d.dateStr),
               earliestDate,
               earliestDateSource: {
-                kpiDate: validDates[0].kpi.target_date || validDates[0].kpi.activity_date || rawKPI['Date'] || 'N/A',
+                kpiDate: validDates[0].kpi.activity_date || rawKPI['Activity Date'] || rawKPI['Date'] || 'N/A',
                 kpiZone: kpiZone || 'N/A',
                 kpiActivityName: validDates[0].kpi.activity_name || rawKPI['Activity Name'] || 'N/A',
                 kpiProjectCode: validDates[0].kpi.project_code || rawKPI['Project Code'] || 'N/A'
@@ -942,20 +938,14 @@ export function BOQTableWithCustomization({
         matchingKPIs.forEach((kpi: any) => {
           const rawKPI = (kpi as any).raw || {}
           
-          // Get Date from Date/Actual Date column (priority: actual_date > activity_date > target_date > raw['Date'] > raw['Actual Date'])
+          // Get Date from Activity Date column (for Actual KPIs, filtered by Input Type = 'Actual')
           let kpiDateStr = ''
-          if (kpi.actual_date && kpi.actual_date.toString().trim() !== '' && kpi.actual_date !== 'N/A') {
-            kpiDateStr = kpi.actual_date.toString().trim()
-          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+          if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
             kpiDateStr = kpi.activity_date.toString().trim()
-          } else if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
-            kpiDateStr = kpi.target_date.toString().trim()
-          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Date'].toString().trim()
-          } else if (rawKPI['Actual Date'] && rawKPI['Actual Date'].toString().trim() !== '' && rawKPI['Actual Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Actual Date'].toString().trim()
           } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
           }
           
           if (kpiDateStr) {
@@ -988,7 +978,7 @@ export function BOQTableWithCustomization({
               allDates: validDates.map(d => d.dateStr),
               earliestDate,
               earliestDateSource: {
-                kpiDate: validDates[0].kpi.actual_date || validDates[0].kpi.activity_date || rawKPI['Date'] || rawKPI['Actual Date'] || 'N/A',
+                kpiDate: validDates[0].kpi.activity_date || rawKPI['Activity Date'] || rawKPI['Date'] || 'N/A',
                 kpiZone: kpiZone || 'N/A',
                 kpiActivityName: validDates[0].kpi.activity_name || rawKPI['Activity Name'] || 'N/A',
                 kpiProjectCode: validDates[0].kpi.project_code || rawKPI['Project Code'] || 'N/A'
@@ -1175,20 +1165,14 @@ export function BOQTableWithCustomization({
         matchingKPIs.forEach((kpi: any) => {
           const rawKPI = (kpi as any).raw || {}
           
-          // Get Date from Date/Actual Date column (priority: actual_date > activity_date > target_date > raw['Date'] > raw['Actual Date'])
+          // Get Date from Activity Date column (for Actual KPIs, filtered by Input Type = 'Actual')
           let kpiDateStr = ''
-          if (kpi.actual_date && kpi.actual_date.toString().trim() !== '' && kpi.actual_date !== 'N/A') {
-            kpiDateStr = kpi.actual_date.toString().trim()
-          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+          if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
             kpiDateStr = kpi.activity_date.toString().trim()
-          } else if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
-            kpiDateStr = kpi.target_date.toString().trim()
-          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Date'].toString().trim()
-          } else if (rawKPI['Actual Date'] && rawKPI['Actual Date'].toString().trim() !== '' && rawKPI['Actual Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Actual Date'].toString().trim()
           } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
           }
           
           if (kpiDateStr) {
@@ -1221,7 +1205,7 @@ export function BOQTableWithCustomization({
               allDates: validDates.map(d => d.dateStr),
               latestDate,
               latestDateSource: {
-                kpiDate: validDates[validDates.length - 1].kpi.actual_date || validDates[validDates.length - 1].kpi.activity_date || rawKPI['Date'] || rawKPI['Actual Date'] || 'N/A',
+                kpiDate: validDates[validDates.length - 1].kpi.activity_date || rawKPI['Activity Date'] || rawKPI['Date'] || 'N/A',
                 kpiZone: kpiZone || 'N/A',
                 kpiActivityName: validDates[validDates.length - 1].kpi.activity_name || rawKPI['Activity Name'] || 'N/A',
                 kpiProjectCode: validDates[validDates.length - 1].kpi.project_code || rawKPI['Project Code'] || 'N/A'
@@ -1365,11 +1349,9 @@ export function BOQTableWithCustomization({
       // Get date based on input type
       let kpiDateStr = ''
       if (inputType === 'planned') {
-        kpiDateStr = kpi.activity_date || kpi.target_date || kpi['Activity Date'] || kpi['Target Date'] || 
-                    rawKPI['Activity Date'] || rawKPI['Target Date'] || ''
+        kpiDateStr = kpi.activity_date || kpi['Activity Date'] || rawKPI['Activity Date'] || ''
       } else {
-        kpiDateStr = kpi.actual_date || kpi.activity_date || kpi['Actual Date'] || kpi['Activity Date'] || 
-                    rawKPI['Actual Date'] || rawKPI['Activity Date'] || ''
+        kpiDateStr = kpi.activity_date || kpi['Activity Date'] || rawKPI['Activity Date'] || ''
       }
       
       // If no date, include it (assume valid)

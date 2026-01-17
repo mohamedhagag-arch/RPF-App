@@ -3136,37 +3136,20 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       return true
     }
     
-    // ✅ FIXED: Check if KPI date is until yesterday - Use EXACT SAME LOGIC as Work Value Status
-    // Priority: activity_date > target_date > raw['Activity Date'] > raw['Target Date'] > raw['Day'] > kpi.day
+    // ✅ Check if KPI date is until yesterday - Use Activity Date (filtered by Input Type)
+    // Priority: activity_date > raw['Activity Date'] > raw['Day'] > kpi.day
     const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
       const yesterday = new Date()
       yesterday.setDate(yesterday.getDate() - 1)
       yesterday.setHours(23, 59, 59, 999)
       
       const rawKpi = (kpi as any).raw || {}
-      let kpiDateStr = ''
-      
-      if (inputType === 'planned') {
-        // ✅ Use EXACT SAME LOGIC as workValueCalculator.ts
-        // Priority: activity_date > target_date > raw['Activity Date'] > raw['Target Date'] > raw['Day'] > kpi.day
-        kpiDateStr = kpi.activity_date ||
-                    kpi.target_date ||
-                    rawKpi['Activity Date'] ||
-                    rawKpi['Target Date'] ||
-                    rawKpi['Day'] ||
-                    kpi.day ||
-                    ''
-      } else {
-        // ✅ Use EXACT SAME LOGIC as workValueCalculator.ts
-        // Priority: activity_date > actual_date > raw['Activity Date'] > raw['Actual Date'] > raw['Day'] > kpi.day
-        kpiDateStr = kpi.activity_date ||
-                    kpi.actual_date ||
-                    rawKpi['Activity Date'] ||
-                    rawKpi['Actual Date'] ||
-                    rawKpi['Day'] ||
-                    kpi.day ||
-                    ''
-      }
+      // Use Activity Date (filtered by Input Type in queries)
+      let kpiDateStr = kpi.activity_date ||
+                      rawKpi['Activity Date'] ||
+                      rawKpi['Day'] ||
+                      kpi.day ||
+                      ''
       
       // If no date, include it (treat as valid) - SAME AS workValueCalculator.ts
       if (!kpiDateStr) return true

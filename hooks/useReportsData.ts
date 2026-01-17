@@ -1228,9 +1228,7 @@ export function useReportsData() {
           const rawKPI = (kpi as any).raw || {}
           const kpiDateStr =
             kpi.activity_date ||
-            kpi.target_date ||
             rawKPI['Activity Date'] ||
-            rawKPI['Target Date'] ||
             rawKPI['Day'] ||
             (kpi as any).day ||
             ''

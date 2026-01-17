@@ -37,8 +37,7 @@ export function IntelligentKPIForm({
   const [inputType, setInputType] = useState<'Planned' | 'Actual'>('Planned')
   const [quantity, setQuantity] = useState('')
   const [unit, setUnit] = useState('')
-  const [targetDate, setTargetDate] = useState('')
-  const [actualDate, setActualDate] = useState('')
+  const [activityDate, setActivityDate] = useState('')
   const [zone, setZone] = useState('')
   const [zoneNumber, setZoneNumber] = useState('')
   const [day, setDay] = useState('')
@@ -156,59 +155,28 @@ export function IntelligentKPIForm({
       // Priority 1: Day column (if available and formatted)
       const dayValue = kpi.day || rawKPIDate['Day'] || ''
       
-      // Priority 2: Actual Date (for Actual KPIs) or Target Date (for Planned KPIs)
-      // ✅ EXACT SAME as table: kpi.actual_date || rawKPIDate['Actual Date']
-      const actualDateValue = kpi.actual_date || rawKPIDate['Actual Date'] || ''
-      const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
-      
-      // Priority 3: Activity Date
+      // Priority 2: Activity Date (unified date field)
       const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
       
-      // Determine which date to use based on Input Type (EXACT SAME AS TABLE)
-      // ✅ Use kpi.input_type directly like table (not lowercase)
-      const isActual = kpi.input_type === 'Actual' // ✅ EXACT SAME as table: kpi.input_type === 'Actual'
+      // Use Activity Date (or Day if Activity Date not available)
+      let dateToUse = activityDateValue || dayValue
       
-      let dateToUse = ''
-      if (isActual && actualDateValue) {
-        dateToUse = actualDateValue
-      } else if (!isActual && targetDateValue) {
-        dateToUse = targetDateValue
-      } else if (dayValue) {
-        // If Day is available, try to use it or fallback to Activity Date
-        dateToUse = activityDateValue || dayValue
-      } else {
-        dateToUse = activityDateValue || actualDateValue || targetDateValue
-      }
-      
-      // Set dates based on Input Type
-      if (isActual) {
-        setActualDate(formatDateForInput(dateToUse))
-        setTargetDate('') // Clear target date for Actual KPIs
-      } else {
-        setTargetDate(formatDateForInput(dateToUse))
-        setActualDate('') // Clear actual date for Planned KPIs
-      }
+      // Set Activity Date
+      setActivityDate(formatDateForInput(dateToUse))
       
       // ✅ DEBUG: Log all possible date fields to find the correct one
       console.log('📅 [Date Detection] All date fields:', {
         inputType: kpi.input_type || kpi['Input Type'],
-        isActual,
         // Direct KPI fields
-        'kpi.actual_date': kpi.actual_date,
-        'kpi.target_date': kpi.target_date,
         'kpi.activity_date': kpi.activity_date,
         'kpi.day': kpi.day,
         // Raw fields
-        "rawKPIDate['Actual Date']": rawKPIDate['Actual Date'],
-        "rawKPIDate['Target Date']": rawKPIDate['Target Date'],
         "rawKPIDate['Activity Date']": rawKPIDate['Activity Date'],
         "rawKPIDate['Day']": rawKPIDate['Day'],
         // All KPI keys
         allKpiKeys: Object.keys(kpi),
         allRawKeys: Object.keys(rawKPIDate),
         // Resolved values
-        actualDateValue,
-        targetDateValue,
         activityDateValue,
         dayValue,
         dateToUse,
@@ -297,8 +265,7 @@ export function IntelligentKPIForm({
         inputType: kpi['Input Type'] || kpi.input_type,
         quantity: kpi['Quantity'] || kpi.quantity,
         unit: kpi['Unit'] || kpi.unit,
-        targetDate: formatDateForInput(targetDateValue),
-        actualDate: formatDateForInput(actualDateValue),
+        activityDate: formatDateForInput(dateToUse),
         zone: kpi['Zone'] || kpi.zone,
         zoneNumber: kpi['Zone Number'] || kpi.zone_number,
         day: kpi['Day'] || kpi.day,
@@ -639,8 +606,7 @@ export function IntelligentKPIForm({
     
     // Basic validation for auto-save
     if (!projectCode || !activityName || !quantity || !unit) return
-    if (inputType === 'Planned' && !targetDate) return
-    if (inputType === 'Actual' && !actualDate) return
+    if (!activityDate) return
     
     try {
       const quantityValue = parseFloat(quantity)
@@ -655,23 +621,20 @@ export function IntelligentKPIForm({
       
       // ✅ Calculate Day from Activity Date if not provided (same format as Planned KPIs)
       let dayValue = day || ''
-      if (!dayValue) {
-        const dateToUse = inputType === 'Actual' ? actualDate : targetDate
-        if (dateToUse) {
-          try {
-            const date = new Date(dateToUse)
-            if (!isNaN(date.getTime())) {
-              const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
-              dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
-            }
-          } catch (e) {
-            console.warn('⚠️ Could not calculate Day from date:', dateToUse)
+      if (!dayValue && activityDate) {
+        try {
+          const date = new Date(activityDate)
+          if (!isNaN(date.getTime())) {
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
           }
+        } catch (e) {
+          console.warn('⚠️ Could not calculate Day from date:', activityDate)
         }
       }
       
       // ✅ Calculate Activity Date (unified date field)
-      const activityDateValue = inputType === 'Actual' ? actualDate : targetDate
+      const activityDateValue = activityDate
       
       // ✅ Get Activity Division and Activity Timing from selected activity
       let activityDivision = ''
@@ -709,9 +672,7 @@ export function IntelligentKPIForm({
         'Value': calculatedValue.toString(), // ✅ Include Value (same as Planned)
         'Unit': unit,
         'Input Type': inputType || 'Planned',
-        'Target Date': targetDate || '',
-        'Actual Date': actualDate || '',
-        'Activity Date': activityDateValue || '', // ✅ Unified Activity Date (same as Planned)
+        'Activity Date': activityDate || '', // ✅ Unified Activity Date (use with Input Type filter)
         'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Section': '', // ✅ Section field (empty for manual entry, same as Planned auto-generated)
         // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
@@ -744,7 +705,7 @@ export function IntelligentKPIForm({
     } finally {
       setAutoSaving(false)
     }
-  }, [isInitialized, kpi, hasUserChangedFields, projectCode, activityName, quantity, unit, inputType, targetDate, actualDate, zone, zoneNumber, day, drilledMeters, project, onSubmit])
+  }, [isInitialized, kpi, hasUserChangedFields, projectCode, activityName, quantity, unit, inputType, activityDate, zone, zoneNumber, day, drilledMeters, project, onSubmit])
   
   // Auto-save effect with debounce
   useEffect(() => {
@@ -774,8 +735,7 @@ export function IntelligentKPIForm({
       if (isNaN(quantityValue)) throw new Error('Please enter a valid number for quantity')
       if (quantityValue < 0) throw new Error('Quantity cannot be negative')
       if (!unit) throw new Error('Please enter a unit')
-      if (inputType === 'Planned' && !targetDate) throw new Error('Please enter target date for Planned KPI')
-      if (inputType === 'Actual' && !actualDate) throw new Error('Please enter actual date for Actual KPI')
+      if (!activityDate) throw new Error('Please enter activity date')
       
       // Debug logging
       console.log('🔍 Debug - Project object:', project)
@@ -803,23 +763,20 @@ export function IntelligentKPIForm({
       
       // ✅ Calculate Day from Activity Date if not provided (same format as Planned KPIs)
       let dayValue = day || ''
-      if (!dayValue) {
-        const dateToUse = inputType === 'Actual' ? actualDate : targetDate
-        if (dateToUse) {
-          try {
-            const date = new Date(dateToUse)
-            if (!isNaN(date.getTime())) {
-              const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
-              dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
-            }
-          } catch (e) {
-            console.warn('⚠️ Could not calculate Day from date:', dateToUse)
+      if (!dayValue && activityDate) {
+        try {
+          const date = new Date(activityDate)
+          if (!isNaN(date.getTime())) {
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
           }
+        } catch (e) {
+          console.warn('⚠️ Could not calculate Day from date:', activityDate)
         }
       }
       
       // ✅ Calculate Activity Date (unified date field)
-      const activityDateValue = inputType === 'Actual' ? actualDate : targetDate
+      const activityDateValue = activityDate
       
       // ✅ Get Activity Division and Activity Timing from selected activity
       let activityDivision = ''
@@ -863,9 +820,7 @@ export function IntelligentKPIForm({
         'Value': calculatedValue.toString(), // ✅ Include Value (same as Planned)
         'Unit': unit || '',
         'Input Type': inputType || 'Planned',
-        'Target Date': targetDate || '',
-        'Actual Date': actualDate || '',
-        'Activity Date': activityDateValue || '', // ✅ Unified Activity Date (same as Planned)
+        'Activity Date': activityDate || '', // ✅ Unified Activity Date (use with Input Type filter)
         'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Section': '', // ✅ Section field (empty for manual entry, same as Planned auto-generated)
         // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
@@ -908,8 +863,7 @@ export function IntelligentKPIForm({
       console.log('🔍 Activity Name:', kpiData['Activity Name'])
       console.log('🔍 Quantity:', kpiData['Quantity'])
       console.log('🔍 Input Type:', kpiData['Input Type'])
-      console.log('🔍 Target Date:', kpiData['Target Date'])
-      console.log('🔍 Actual Date:', kpiData['Actual Date'])
+      console.log('🔍 Activity Date:', kpiData['Activity Date'])
       
       // Submit
       console.log('🚀 Calling onSubmit with data:', kpiData)
@@ -1299,53 +1253,30 @@ export function IntelligentKPIForm({
 
           {/* Dates */}
           <div className="grid grid-cols-2 gap-4">
-            {inputType === 'Planned' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  <span className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    Target Date <span className="text-red-500">*</span>
-                  </span>
-                </label>
-                <input
-                  type="date"
-                  value={targetDate}
-                  onChange={(e) => {
-                    setTargetDate(e.target.value)
-                    setHasUserChangedFields(true)
-                  }}
-                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-            )}
-            
-            {inputType === 'Actual' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  <span className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4" />
-                    Actual Date <span className="text-red-500">*</span>
-                  </span>
-                </label>
-                <input
-                  type="date"
-                  value={actualDate}
-                  onChange={(e) => {
-                    console.log('📅 Actual date changed:', e.target.value)
-                    setActualDate(e.target.value)
-                    setHasUserChangedFields(true)
-                  }}
-                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                  required
-                />
-                {actualDate && (
-                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                    ✅ Date loaded: {actualDate}
-                  </p>
-                )}
-              </div>
-            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <span className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4" />
+                  Activity Date <span className="text-red-500">*</span>
+                </span>
+              </label>
+              <input
+                type="date"
+                value={activityDate}
+                onChange={(e) => {
+                  console.log('📅 Activity date changed:', e.target.value)
+                  setActivityDate(e.target.value)
+                  setHasUserChangedFields(true)
+                }}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+              {activityDate && (
+                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                  ✅ Date loaded: {activityDate}
+                </p>
+              )}
+            </div>
             
             <div className="relative">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1467,11 +1398,8 @@ export function IntelligentKPIForm({
                     <div><span className="font-medium">Project:</span> {projectCode || project?.project_full_code || project?.project_code || ''}</div>
                     <div><span className="font-medium">Activity:</span> {activityName}</div>
                     <div><span className="font-medium">Quantity:</span> {quantity} {unit}</div>
-                    {inputType === 'Planned' && targetDate && (
-                      <div><span className="font-medium">Target:</span> {new Date(targetDate).toLocaleDateString()}</div>
-                    )}
-                    {inputType === 'Actual' && actualDate && (
-                      <div><span className="font-medium">Actual:</span> {new Date(actualDate).toLocaleDateString()}</div>
+                    {activityDate && (
+                      <div><span className="font-medium">Activity Date:</span> {new Date(activityDate).toLocaleDateString()}</div>
                     )}
                   </div>
                 </div>

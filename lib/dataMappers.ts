@@ -715,10 +715,9 @@ export function mapKPIFromDB(row: any): any {
     // 💰 Financial
     value: value,
     
-    // 📅 Dates - ✅ PRIORITY: Day column from database
-    activity_date: row['Activity Date'] || row['Target Date'] || row['Actual Date'] || '',
-    target_date: row['Target Date'] || '',
-    actual_date: row['Actual Date'] || '',
+    // 📅 Dates - Activity Date is the unified date field (DATE type in DB, returned as ISO string)
+    // Supabase returns DATE type as ISO string (YYYY-MM-DD), so we can use it directly
+    activity_date: row['Activity Date'] ? String(row['Activity Date']).split('T')[0] : '',
     day: row['Day'] || '',
     'Day': row['Day'] || '', // Keep both formats for compatibility
     
@@ -781,8 +780,7 @@ export function mapKPIToDB(kpi: any): any {
     'Day': kpi.day,
     // ✅ NOT from Section - Section is separate from Zone
     'Zone': kpi.zone || '',
-    'Target Date': kpi.target_date, // For Planned
-    'Actual Date': kpi.actual_date, // For Actual
+    'Activity Date': kpi.activity_date || '2025-12-31', // Unified date field (DATE type, must be YYYY-MM-DD format, default if empty)
     'Recorded By': kpi.recorded_by,
     'Notes': kpi.notes,
     // ✅ Activity Timing

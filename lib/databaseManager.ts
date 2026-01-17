@@ -829,8 +829,6 @@ function getCorrectColumnNames(tableName: string): string[] {
       'Value',
       
       // ✅ Dates (User Input)
-      'Target Date',
-      'Actual Date',
       'Activity Date',
       'Day',
       
@@ -1013,8 +1011,6 @@ function normalizeColumnNames(data: any[], tableName: string): any[] {
       'zone': 'Zone',
       'drilled_meters': 'Drilled Meters',
       'value': 'Value',
-      'target_date': 'Target Date',
-      'actual_date': 'Actual Date',
       'activity_date': 'Activity Date',
       'day': 'Day',
       'recorded_by': 'Recorded By',

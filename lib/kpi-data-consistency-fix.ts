@@ -18,8 +18,7 @@ export interface ConsistentKPIRecord extends KPIRecord {
   quantity: number
   unit: string
   input_type: 'Planned' | 'Actual'
-  target_date: string
-  actual_date: string
+  activity_date: string // ✅ Unified date field (replaces target_date and actual_date)
   zone_ref: string
   zone_number: string
   created_at: string
@@ -59,8 +58,7 @@ export class KPIConsistencyManager {
       input_type: this.ensureInputType(normalized.input_type || record['Input Type'] || 'Planned'),
       
       // Date fields
-      target_date: this.ensureString(normalized.target_date || record['Target Date'] || ''),
-      actual_date: this.ensureString(normalized.actual_date || record['Actual Date'] || ''),
+      activity_date: this.ensureString(normalized.activity_date || record['Activity Date'] || ''),
       
       // Zone fields
       zone_ref: this.ensureString(normalized.zone_ref || record['Zone Ref'] || record['Zone'] || ''),
@@ -165,12 +163,14 @@ export class KPIConsistencyManager {
     quantity: number
     unit: string
     inputType: 'Planned' | 'Actual'
-    targetDate?: string
-    actualDate?: string
+    activityDate?: string // ✅ Unified date field (replaces targetDate and actualDate)
     zoneRef?: string
     zoneNumber?: string
   }): any {
     // ✅ Only include columns that exist in the unified KPI table
+    // ✅ Activity Date is the unified date field (DATE type, YYYY-MM-DD format, default if empty)
+    const activityDate = data.activityDate || '2025-12-31'
+    
     return {
       'Project Full Code': data.projectCode,
       'Project Code': data.projectCode,
@@ -181,8 +181,6 @@ export class KPIConsistencyManager {
       'Quantity': data.quantity.toString(),
       'Unit': data.unit,
       'Input Type': data.inputType,
-      'Target Date': data.targetDate || '',
-      'Actual Date': data.actualDate || '',
       // ✅ Section and Zone are separate fields
       // Section should be empty for auto-created KPIs (only filled by site engineer in Actual KPIs)
       'Section': '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
@@ -202,7 +200,7 @@ export class KPIConsistencyManager {
       })(),
       'Zone Number': data.zoneNumber || '', // ✅ Zone Number is separate field
       // ❌ Removed 'Zone Ref' - not a column in unified KPI table
-      'Activity Date': data.inputType === 'Actual' ? data.actualDate : data.targetDate
+      'Activity Date': String(activityDate).split('T')[0] // ✅ Unified date field (DATE type, YYYY-MM-DD format, default if empty)
     }
   }
 

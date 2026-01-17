@@ -39,7 +39,7 @@ interface PendingKPI {
   'Activity Name'?: string
   'Quantity'?: string
   'Unit'?: string
-  'Target Date'?: string
+  'Activity Date'?: string // ✅ Unified date field (replaces Target Date)
   'Section'?: string
   'Zone'?: string
   'Value'?: string
@@ -371,7 +371,11 @@ export default function PendingApprovalKPIPage() {
       if (editedKPI.activity_name !== undefined) updatePayload['Activity Name'] = editedKPI.activity_name
       if (editedKPI.quantity !== undefined) updatePayload['Quantity'] = String(editedKPI.quantity)
       if (editedKPI.unit !== undefined) updatePayload['Unit'] = editedKPI.unit
-      if (editedKPI.target_date !== undefined) updatePayload['Target Date'] = editedKPI.target_date
+      // ✅ Use Activity Date (unified field) instead of Target Date
+      if (editedKPI.activity_date !== undefined || editedKPI.target_date !== undefined) {
+        const activityDate = editedKPI.activity_date || editedKPI.target_date || '2025-12-31'
+        updatePayload['Activity Date'] = String(activityDate).split('T')[0] // Ensure YYYY-MM-DD format
+      }
       if (editedKPI.section !== undefined) updatePayload['Section'] = editedKPI.section
       if (editedKPI.zone !== undefined) updatePayload['Zone'] = editedKPI.zone
       if (editedKPI.value !== undefined) updatePayload['Value'] = String(editedKPI.value)
@@ -438,7 +442,11 @@ export default function PendingApprovalKPIPage() {
         if (editedData.activity_name !== undefined) updatePayload['Activity Name'] = editedData.activity_name
         if (editedData.quantity !== undefined) updatePayload['Quantity'] = String(editedData.quantity)
         if (editedData.unit !== undefined) updatePayload['Unit'] = editedData.unit
-        if (editedData.target_date !== undefined) updatePayload['Target Date'] = editedData.target_date
+        // ✅ Use Activity Date (unified field) instead of Target Date
+        if (editedData.activity_date !== undefined || editedData.target_date !== undefined) {
+          const activityDate = editedData.activity_date || editedData.target_date || '2025-12-31'
+          updatePayload['Activity Date'] = String(activityDate).split('T')[0] // Ensure YYYY-MM-DD format
+        }
         if (editedData.section !== undefined) updatePayload['Section'] = editedData.section
         if (editedData.zone !== undefined) updatePayload['Zone'] = editedData.zone
         if (editedData.value !== undefined) updatePayload['Value'] = String(editedData.value)
@@ -754,9 +762,10 @@ export default function PendingApprovalKPIPage() {
       // COMPREHENSIVE LIST: All columns that exist in kpi_rejected but NOT in "Planning Database - KPI"
       // Based on PRODUCTION_SCHEMA_COMPLETE.sql - the actual KPI table only has these columns:
       // id, Project Full Code, Project Code, Project Sub Code, Activity Name, Activity, Input Type,
-      // Quantity, Unit, Section, Zone, Drilled Meters, Value, Target Date, Actual Date, Activity Date,
+      // Quantity, Unit, Section, Zone, Drilled Meters, Value, Activity Date (DATE type),
       // Day, Recorded By, Notes, created_at, updated_at
       // Plus potentially: Activity Timing, Approval Status, Approved By, Approval Date (from migrations)
+      // ✅ Note: Target Date and Actual Date have been merged into Activity Date
       const invalidColumns = [
         // ============================================================
         // REJECTION-SPECIFIC FIELDS (must be removed)
@@ -860,13 +869,18 @@ export default function PendingApprovalKPIPage() {
       
       // ✅ Explicitly preserve critical fields that should NOT be lost
       // These fields are important for tracking and should be preserved
+      // ✅ Activity Date is the unified date field (DATE type, YYYY-MM-DD format)
       const criticalFields = {
-        'Target Date': kpiDataObj['Target Date'],
-        'Actual Date': kpiDataObj['Actual Date'],
-        'Activity Date': kpiDataObj['Activity Date'],
+        'Activity Date': kpiDataObj['Activity Date'] || kpiDataObj['Target Date'] || kpiDataObj['Actual Date'] || '2025-12-31', // ✅ Unified date field (default if empty)
         'created_by': kpiDataObj['created_by'] || kpiDataObj.created_by,
         'updated_by': kpiDataObj['updated_by'] || kpiDataObj.updated_by,
         'Recorded By': kpiDataObj['Recorded By']
+      }
+      
+      // ✅ Ensure Activity Date is in YYYY-MM-DD format (required for DATE type)
+      if (criticalFields['Activity Date'] && criticalFields['Activity Date'] !== '2025-12-31') {
+        const activityDateStr = String(criticalFields['Activity Date']).split('T')[0]
+        criticalFields['Activity Date'] = activityDateStr || '2025-12-31'
       }
       
       // Restore critical fields if they were accidentally removed
@@ -875,6 +889,18 @@ export default function PendingApprovalKPIPage() {
           mainTableData[key] = value
         }
       })
+      
+      // ✅ Remove deprecated date columns (they no longer exist in main KPI table)
+      delete mainTableData['Target Date']
+      delete mainTableData['Actual Date']
+      
+      // ✅ Ensure Activity Date is properly formatted (YYYY-MM-DD) and has a default value
+      if (!mainTableData['Activity Date'] || mainTableData['Activity Date'] === '' || mainTableData['Activity Date'] === null) {
+        mainTableData['Activity Date'] = '2025-12-31'
+      } else {
+        // Ensure YYYY-MM-DD format (split to remove time component if present)
+        mainTableData['Activity Date'] = String(mainTableData['Activity Date']).split('T')[0]
+      }
       
       // ✅ Preserve all other columns (including any custom/additional fields)
       // This ensures no data is lost during restore
@@ -984,9 +1010,10 @@ export default function PendingApprovalKPIPage() {
       // COMPREHENSIVE LIST: All columns that exist in kpi_rejected but NOT in "Planning Database - KPI"
       // Based on PRODUCTION_SCHEMA_COMPLETE.sql - the actual KPI table only has these columns:
       // id, Project Full Code, Project Code, Project Sub Code, Activity Name, Activity, Input Type,
-      // Quantity, Unit, Section, Zone, Drilled Meters, Value, Target Date, Actual Date, Activity Date,
+      // Quantity, Unit, Section, Zone, Drilled Meters, Value, Activity Date (DATE type),
       // Day, Recorded By, Notes, created_at, updated_at
       // Plus potentially: Activity Timing, Approval Status, Approved By, Approval Date (from migrations)
+      // ✅ Note: Target Date and Actual Date have been merged into Activity Date
       const invalidColumns = [
         // ============================================================
         // REJECTION-SPECIFIC FIELDS (must be removed)
@@ -1090,13 +1117,18 @@ export default function PendingApprovalKPIPage() {
       
       // ✅ Explicitly preserve critical fields that should NOT be lost
       // These fields are important for tracking and should be preserved
+      // ✅ Activity Date is the unified date field (DATE type, YYYY-MM-DD format)
       const criticalFields = {
-        'Target Date': kpiDataObj['Target Date'],
-        'Actual Date': kpiDataObj['Actual Date'],
-        'Activity Date': kpiDataObj['Activity Date'],
+        'Activity Date': kpiDataObj['Activity Date'] || kpiDataObj['Target Date'] || kpiDataObj['Actual Date'] || '2025-12-31', // ✅ Unified date field (default if empty)
         'created_by': kpiDataObj['created_by'] || kpiDataObj.created_by,
         'updated_by': kpiDataObj['updated_by'] || kpiDataObj.updated_by,
         'Recorded By': kpiDataObj['Recorded By']
+      }
+      
+      // ✅ Ensure Activity Date is in YYYY-MM-DD format (required for DATE type)
+      if (criticalFields['Activity Date'] && criticalFields['Activity Date'] !== '2025-12-31') {
+        const activityDateStr = String(criticalFields['Activity Date']).split('T')[0]
+        criticalFields['Activity Date'] = activityDateStr || '2025-12-31'
       }
       
       // Restore critical fields if they were accidentally removed
@@ -1105,6 +1137,18 @@ export default function PendingApprovalKPIPage() {
           mainTableData[key] = value
         }
       })
+      
+      // ✅ Remove deprecated date columns (they no longer exist in main KPI table)
+      delete mainTableData['Target Date']
+      delete mainTableData['Actual Date']
+      
+      // ✅ Ensure Activity Date is properly formatted (YYYY-MM-DD) and has a default value
+      if (!mainTableData['Activity Date'] || mainTableData['Activity Date'] === '' || mainTableData['Activity Date'] === null) {
+        mainTableData['Activity Date'] = '2025-12-31'
+      } else {
+        // Ensure YYYY-MM-DD format (split to remove time component if present)
+        mainTableData['Activity Date'] = String(mainTableData['Activity Date']).split('T')[0]
+      }
       
       // ✅ Preserve all other columns (including any custom/additional fields)
       // This ensures no data is lost during restore
@@ -1116,7 +1160,11 @@ export default function PendingApprovalKPIPage() {
         if (editedData.activity_name !== undefined) mainTableData['Activity Name'] = editedData.activity_name
         if (editedData.quantity !== undefined) mainTableData['Quantity'] = String(editedData.quantity)
         if (editedData.unit !== undefined) mainTableData['Unit'] = editedData.unit
-        if (editedData.target_date !== undefined) mainTableData['Target Date'] = editedData.target_date
+        // ✅ Use Activity Date (unified field) instead of Target Date
+        if (editedData.activity_date !== undefined || editedData.target_date !== undefined) {
+          const activityDate = editedData.activity_date || editedData.target_date || '2025-12-31'
+          mainTableData['Activity Date'] = String(activityDate).split('T')[0] // Ensure YYYY-MM-DD format
+        }
         if (editedData.section !== undefined) mainTableData['Section'] = editedData.section
         if (editedData.zone !== undefined) mainTableData['Zone'] = editedData.zone
         if (editedData.value !== undefined) mainTableData['Value'] = String(editedData.value)
@@ -1174,7 +1222,8 @@ export default function PendingApprovalKPIPage() {
           .delete()
           .eq('Project Full Code', mainTableData['Project Full Code'])
           .eq('Activity Name', mainTableData['Activity Name'])
-          .eq('Activity Date', mainTableData['Activity Date'] || mainTableData['Actual Date'] || mainTableData['Target Date'])
+          // ✅ Activity Date is now DATE type - ensure YYYY-MM-DD format
+          .eq('Activity Date', (mainTableData['Activity Date'] || mainTableData['Actual Date'] || mainTableData['Target Date'] || '').toString().split('T')[0])
           .order('created_at', { ascending: false })
           .limit(1)
         
@@ -1813,8 +1862,9 @@ export default function PendingApprovalKPIPage() {
     if (field === 'Quantity') {
       return kpi.quantity || kpi['Quantity'] || '0'
     }
-    if (field === 'Target Date') {
-      return kpi.target_date || kpi['Target Date'] || ''
+    if (field === 'Activity Date' || field === 'Target Date') {
+      // ✅ Use Activity Date (unified field) - fallback to Target Date for backward compatibility
+      return kpi.activity_date || kpi['Activity Date'] || kpi.target_date || kpi['Target Date'] || ''
     }
     if (field === 'Value') {
       return kpi.value || kpi['Value'] || '0'
@@ -2578,13 +2628,13 @@ export default function PendingApprovalKPIPage() {
                             </div>
                           </div>
                           <div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Target Date</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Activity Date</div>
                             <div className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
                               {(() => {
-                                const targetDate = getField(kpi, 'Target Date')
-                                if (!targetDate || targetDate === '' || targetDate === 'N/A') return 'N/A'
+                                const activityDate = getField(kpi, 'Activity Date')
+                                if (!activityDate || activityDate === '' || activityDate === 'N/A') return 'N/A'
                                 try {
-                                  return new Date(targetDate).toLocaleDateString()
+                                  return new Date(activityDate).toLocaleDateString()
                                 } catch {
                                   return targetDate || 'N/A'
                                 }
@@ -2932,13 +2982,13 @@ export default function PendingApprovalKPIPage() {
                                   </div>
                                 </div>
                                 <div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Target Date</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Activity Date</div>
                                   <div className="text-sm font-medium text-gray-900 dark:text-white">
                                     {(() => {
-                                      const targetDate = getField(kpi, 'Target Date')
-                                      if (!targetDate || targetDate === '' || targetDate === 'N/A') return 'N/A'
+                                      const activityDate = getField(kpi, 'Activity Date')
+                                      if (!activityDate || activityDate === '' || activityDate === 'N/A') return 'N/A'
                                       try {
-                                        return new Date(targetDate).toLocaleDateString()
+                                        return new Date(activityDate).toLocaleDateString()
                                       } catch {
                                         return targetDate || 'N/A'
                                       }
@@ -3188,15 +3238,15 @@ export default function PendingApprovalKPIPage() {
                   />
                 </div>
 
-                {/* Target Date */}
+                {/* Activity Date */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Target Date
+                    Activity Date
                   </label>
                   <input
                     type="date"
-                    value={editingKPI?.target_date || editingKPI?.['Target Date'] || ''}
-                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, target_date: e.target.value, id: editingKPI.id })}
+                    value={editingKPI?.activity_date || editingKPI?.['Activity Date'] || editingKPI?.target_date || editingKPI?.['Target Date'] || ''}
+                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, activity_date: e.target.value, id: editingKPI.id })}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
                   />
                 </div>

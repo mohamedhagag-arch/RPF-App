@@ -159,10 +159,8 @@ export interface KPIRecord {
   value?: number                    // Financial value of activity
   
   // 📅 Date Fields
-  activity_date?: string            // Unified activity date (Target or Actual)
-  target_date?: string              // Planned date (for Planned only)
-  actual_date?: string              // Actual date (for Actual only)
-  day?: string                      // Reference day
+  activity_date?: string            // Unified activity date (use with Input Type filter)
+  day?: string                      // Reference day (calculated from Activity Date)
   
   // 📍 Location Fields
   zone?: string                     // Zone/Area

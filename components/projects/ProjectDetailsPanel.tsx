@@ -458,8 +458,6 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           const rawKpi = (kpi as any).raw || {}
           const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
                          kpi.activity_date || kpi['Activity Date'] ||
-                         rawKpi['Target Date'] || rawKpi.target_date ||
-                         kpi.target_date || kpi['Target Date'] ||
                          rawKpi['Day'] || rawKpi.day ||
                          kpi.day || kpi['Day'] ||
                          ''
@@ -509,8 +507,6 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           const rawKpi = (kpi as any).raw || {}
           const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
                          kpi.activity_date || kpi['Activity Date'] ||
-                         rawKpi['Target Date'] || rawKpi.target_date ||
-                         kpi.target_date || kpi['Target Date'] ||
                          rawKpi['Day'] || rawKpi.day ||
                          kpi.day || kpi['Day'] ||
                          ''
@@ -559,8 +555,6 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           const rawKpi = (kpi as any).raw || {}
           const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
                          kpi.activity_date || kpi['Activity Date'] ||
-                         rawKpi['Target Date'] || rawKpi.target_date ||
-                         kpi.target_date || kpi['Target Date'] ||
                          rawKpi['Day'] || rawKpi.day ||
                          kpi.day || kpi['Day'] ||
                          ''
@@ -1739,10 +1733,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             const dates = plannedKPIs
                               .map((kpi: any) => {
                                 const rawKpi = (kpi as any).raw || {}
-                                const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
-                                               kpi.activity_date || kpi['Activity Date'] ||
-                                               rawKpi['Target Date'] || rawKpi.target_date ||
-                                               kpi.target_date || kpi['Target Date'] ||
+          const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                         kpi.activity_date || kpi['Activity Date'] ||
                                                rawKpi['Day'] || rawKpi.day ||
                                                kpi.day || kpi['Day'] ||
                                                ''
@@ -1808,10 +1800,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             const dates = plannedKPIs
                               .map((kpi: any) => {
                                 const rawKpi = (kpi as any).raw || {}
-                                const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
-                                               kpi.activity_date || kpi['Activity Date'] ||
-                                               rawKpi['Target Date'] || rawKpi.target_date ||
-                                               kpi.target_date || kpi['Target Date'] ||
+          const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                         kpi.activity_date || kpi['Activity Date'] ||
                                                rawKpi['Day'] || rawKpi.day ||
                                                kpi.day || kpi['Day'] ||
                                                ''

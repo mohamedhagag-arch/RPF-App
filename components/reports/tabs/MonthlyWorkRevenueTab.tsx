@@ -616,17 +616,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         
         const rawKPIDate = (kpi as any).raw || {}
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
-        let kpiDateStr = ''
-        if (kpi.input_type === 'Actual' && actualDateValue) {
-          kpiDateStr = actualDateValue
-        } else if (dayValue) {
-          kpiDateStr = activityDateValue || dayValue
-        } else {
-          kpiDateStr = activityDateValue || actualDateValue
-        }
+        // Use Activity Date (filtered by Input Type = 'Actual' in the filter above)
+        let kpiDateStr = activityDateValue || dayValue
         
         if (!kpiDateStr) return false
         
@@ -810,7 +803,6 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (inputType !== 'planned') return false
         
         const rawKPIDate = (kpi as any).raw || {}
-        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
         let kpiDateStr = ''
@@ -1162,7 +1154,6 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         const rawKPIDate = (kpi as any).raw || {}
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
         const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
-        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
         let kpiDateStr = ''
@@ -1383,7 +1374,6 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         
         // ? Use EXACT SAME LOGIC as calculatePeriodPlannedValue
         const rawKPIDate = (kpi as any).raw || {}
-        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
         let kpiDateStr = ''
@@ -1574,17 +1564,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         
         const rawKPIDate = (kpi as any).raw || {}
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
-        let kpiDateStr = ''
-        if (kpi.input_type === 'Actual' && actualDateValue) {
-          kpiDateStr = actualDateValue
-        } else if (dayValue) {
-          kpiDateStr = activityDateValue || dayValue
-        } else {
-          kpiDateStr = activityDateValue || actualDateValue
-        }
+        // Use Activity Date (filtered by Input Type = 'Actual' in the filter above)
+        let kpiDateStr = activityDateValue || dayValue
         
         if (!kpiDateStr) return false
         
@@ -1757,7 +1740,6 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (inputType !== 'planned') return false
         
         const rawKPIDate = (kpi as any).raw || {}
-        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
         let kpiDateStr = ''
@@ -1981,7 +1963,6 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         
         const rawKPIDate = (kpi as any).raw || {}
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
         let kpiDateStr = ''
@@ -2231,17 +2212,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         // 2. Match date (must be within period)
         const rawKPIDate = (kpi as any).raw || {}
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
-        let kpiDateStr = ''
-        if (kpi.input_type === 'Actual' && actualDateValue) {
-          kpiDateStr = actualDateValue
-        } else if (dayValue) {
-          kpiDateStr = activityDateValue || dayValue
-        } else {
-          kpiDateStr = activityDateValue || actualDateValue
-        }
+        // Use Activity Date (filtered by Input Type = 'Actual' in the filter above)
+        let kpiDateStr = activityDateValue || dayValue
         
         if (!kpiDateStr) return false
         
@@ -2356,7 +2330,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           return false
         }
         
-        const kpiDate = kpi.target_date || (kpi as any).raw?.['Target Date'] || ''
+        const kpiDate = kpi.activity_date || (kpi as any).raw?.['Activity Date'] || ''
         if (!kpiDate) return false
         
         try {

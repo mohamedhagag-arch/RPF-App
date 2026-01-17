@@ -92,9 +92,7 @@ export async function updateProjectStatus(projectId: string): Promise<ProjectSta
         id: kpi.id,
         input_type: kpi['Input Type'] || kpi.input_type || 'Planned',
         quantity: parseFloat(String(kpi.Quantity || kpi.quantity || '0').replace(/,/g, '')) || 0,
-        target_date: kpi['Target Date'] || kpi.target_date || '',
-        actual_date: kpi['Actual Date'] || kpi.actual_date || undefined,
-        activity_date: kpi['Activity Date'] || kpi.activity_date || undefined,
+        activity_date: kpi['Activity Date'] || kpi.activity_date || '',
         activity_name: kpi['Activity Name'] || kpi.activity_name || undefined
       }))
     }

@@ -958,16 +958,12 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         matchingKPIs.forEach((kpi: any) => {
           const rawKPI = (kpi as any).raw || {}
           let kpiDateStr = ''
-          if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
-            kpiDateStr = kpi.target_date.toString().trim()
-          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+          if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
             kpiDateStr = kpi.activity_date.toString().trim()
-          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Date'].toString().trim()
-          } else if (rawKPI['Target Date'] && rawKPI['Target Date'].toString().trim() !== '' && rawKPI['Target Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Target Date'].toString().trim()
           } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
           }
           
           if (kpiDateStr) {
@@ -2107,7 +2103,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 firstKPI: kpisToSave[0] ? {
                   activity_timing: kpisToSave[0].activity_timing,
                   quantity: kpisToSave[0].quantity,
-                  target_date: kpisToSave[0].target_date
+                  activity_date: kpisToSave[0].activity_date
                 } : null
               })
             }
@@ -2127,8 +2123,16 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             const result = await saveGeneratedKPIs(kpisToSave, true, createdByValue)
             console.log('✅ Setting created_by for generated KPIs:', createdByValue)
             
+            // ✅ Show notification if default date was used
+            if (result.defaultDateUsed) {
+              setError('⚠️ Warning: Some KPIs were created with default date (2025-12-31) because Activity Date was empty. Please verify activity dates.')
+            }
+            
             if (result.success) {
-              setSuccess(`✅ Activity created with ${result.savedCount} KPI records!`)
+              const successMsg = result.defaultDateUsed 
+                ? `✅ Activity created with ${result.savedCount} KPI records! (Note: Some KPIs used default date)`
+                : `✅ Activity created with ${result.savedCount} KPI records!`
+              setSuccess(successMsg)
               console.log('✅ Created', result.savedCount, 'KPI records')
             } else {
               console.error('❌ KPI generation failed:', result.message)

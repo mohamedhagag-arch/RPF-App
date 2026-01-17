@@ -269,29 +269,15 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         project_code?: string
         Day?: string
         'Activity Date'?: string
-        'Actual Date'?: string
-        'Target Date'?: string
       }
       
-      // Fetch all KPIs that might match our date range
+      // Fetch all KPIs that match our date range using Activity Date
       const { data: allKPIs, error: kpisError } = await supabase
         .from(TABLES.KPI)
-        .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Actual Date", "Target Date"')
+        .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Input Type"')
+        // ✅ Activity Date is now DATE type - use YYYY-MM-DD format for queries
         .gte('"Activity Date"', startDate.toISOString().split('T')[0])
         .lte('"Activity Date"', today.toISOString().split('T')[0])
-      
-      // Also fetch by other date fields
-      const { data: kpisByActualDate } = await supabase
-        .from(TABLES.KPI)
-        .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Actual Date", "Target Date"')
-        .gte('"Actual Date"', startDate.toISOString().split('T')[0])
-        .lte('"Actual Date"', today.toISOString().split('T')[0])
-      
-      const { data: kpisByTargetDate } = await supabase
-        .from(TABLES.KPI)
-        .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Actual Date", "Target Date"')
-        .gte('"Target Date"', startDate.toISOString().split('T')[0])
-        .lte('"Target Date"', today.toISOString().split('T')[0])
       
       // Combine all KPIs and deduplicate
       const allKPIsCombined: KPIWithDates[] = []
@@ -305,15 +291,13 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       }
       
       if (allKPIs) allKPIs.forEach(addKPI)
-      if (kpisByActualDate) kpisByActualDate.forEach(addKPI)
-      if (kpisByTargetDate) kpisByTargetDate.forEach(addKPI)
       
       // Also fetch by Day field (need to check all day strings)
       const dayStrings = allDates.map(d => formatDateAsDay(d))
       for (const dayString of dayStrings) {
         const { data: kpisByDay } = await supabase
           .from(TABLES.KPI)
-          .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Actual Date", "Target Date"')
+          .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Input Type"')
           .eq('Day', dayString)
         if (kpisByDay) kpisByDay.forEach(addKPI)
       }
@@ -328,11 +312,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         const projectFullCode = (kpi['Project Full Code'] || kpi.project_full_code || '').toUpperCase().trim()
         const projectCode = (kpi['Project Code'] || kpi.project_code || '').toUpperCase().trim()
         
-        // Check all date fields
+        // Check Activity Date field
         const dates = [
-          kpi['Activity Date'],
-          kpi['Actual Date'],
-          kpi['Target Date']
+          kpi['Activity Date']
         ].filter(Boolean)
         
         // Also check Day field
@@ -599,8 +581,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           break
         case 'date':
         case 'key_dates':
-          aValue = a.activity_date || a.target_date || ''
-          bValue = b.activity_date || b.target_date || ''
+          aValue = a.activity_date || ''
+          bValue = b.activity_date || ''
           break
         case 'input_type':
           aValue = (a.input_type || '').toLowerCase()
@@ -1235,9 +1217,32 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // Map to database format (WITH Input Type in unified table)
       const inputType = kpiData['Input Type'] || kpiData.input_type || 'Planned'
       
-      // ✅ Calculate Activity Date (unified date field)
-      const activityDateValue = kpiData['Activity Date'] || kpiData.activity_date || 
-                                (inputType === 'Actual' ? (kpiData['Actual Date'] || kpiData.actual_date) : (kpiData['Target Date'] || kpiData.target_date)) || ''
+      // ✅ Activity Date is the unified date field (DATE type requires YYYY-MM-DD format)
+      // Ensure date is in YYYY-MM-DD format and default to '2025-12-31' if empty
+      let activityDateValue = kpiData['Activity Date'] || kpiData.activity_date || ''
+      
+      // Format date to YYYY-MM-DD if not already in that format
+      if (activityDateValue) {
+        try {
+          // If already in YYYY-MM-DD format, use as-is
+          if (/^\d{4}-\d{2}-\d{2}$/.test(activityDateValue)) {
+            // Already in correct format
+          } else {
+            // Try to parse and format
+            const date = new Date(activityDateValue)
+            if (!isNaN(date.getTime())) {
+              activityDateValue = date.toISOString().split('T')[0]
+            } else {
+              activityDateValue = '2025-12-31' // Invalid date, use default
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ Could not parse Activity Date:', activityDateValue, 'using default')
+          activityDateValue = '2025-12-31'
+        }
+      } else {
+        activityDateValue = '2025-12-31' // Default date for empty values (DATE type requires non-null)
+      }
       
       // ✅ Calculate Day from Activity Date if not provided (same format as Planned KPIs)
       let dayValue = kpiData['Day'] || kpiData.day || ''
@@ -1264,9 +1269,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Quantity': quantity.toString(),
         'Value': calculatedValue.toString(), // ✅ Include calculated Value
         'Input Type': inputType, // ✅ Required in unified table
-        'Target Date': kpiData['Target Date'] || kpiData.target_date || '',
-        'Actual Date': kpiData['Actual Date'] || kpiData.actual_date || '',
-        'Activity Date': activityDateValue, // ✅ Unified Activity Date (same as Planned)
+        'Activity Date': activityDateValue, // ✅ Unified Activity Date (DATE type, YYYY-MM-DD format)
         'Unit': kpiData['Unit'] || kpiData.unit || '',
         'Section': kpiData['Section'] || kpiData.section || '', // ✅ Section field (same as Planned)
         'Zone': kpiData['Zone'] || kpiData.zone || '',
@@ -1469,9 +1472,32 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // Map to database format (WITH Input Type in unified table)
       const inputType = kpiData['Input Type'] || kpiData.input_type || 'Planned'
       
-      // ✅ Calculate Activity Date (unified date field)
-      const activityDateValue = kpiData['Activity Date'] || kpiData.activity_date || 
-                                (inputType === 'Actual' ? (kpiData['Actual Date'] || kpiData.actual_date) : (kpiData['Target Date'] || kpiData.target_date)) || ''
+      // ✅ Activity Date is the unified date field (DATE type requires YYYY-MM-DD format)
+      // Ensure date is in YYYY-MM-DD format and default to '2025-12-31' if empty
+      let activityDateValue = kpiData['Activity Date'] || kpiData.activity_date || ''
+      
+      // Format date to YYYY-MM-DD if not already in that format
+      if (activityDateValue) {
+        try {
+          // If already in YYYY-MM-DD format, use as-is
+          if (/^\d{4}-\d{2}-\d{2}$/.test(activityDateValue)) {
+            // Already in correct format
+          } else {
+            // Try to parse and format
+            const date = new Date(activityDateValue)
+            if (!isNaN(date.getTime())) {
+              activityDateValue = date.toISOString().split('T')[0]
+            } else {
+              activityDateValue = '2025-12-31' // Invalid date, use default
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ Could not parse Activity Date:', activityDateValue, 'using default')
+          activityDateValue = '2025-12-31'
+        }
+      } else {
+        activityDateValue = '2025-12-31' // Default date for empty values (DATE type requires non-null)
+      }
       
       // ✅ Calculate Day from Activity Date if not provided (same format as Planned KPIs)
       let dayValue = kpiData['Day'] || kpiData.day || ''
@@ -1506,9 +1532,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Activity Timing': kpiData['Activity Timing'] || kpiData.activity_timing || 'post-commencement', // ✅ Activity Timing field (same as Planned)
         'Quantity': kpiData['Quantity'] || kpiData.quantity?.toString() || '0',
         'Input Type': inputType, // ✅ Required in unified table
-        'Target Date': kpiData['Target Date'] || kpiData.target_date || '',
-        'Actual Date': kpiData['Actual Date'] || kpiData.actual_date || '',
-        'Activity Date': activityDateValue, // ✅ Unified Activity Date (same as Planned)
+        'Activity Date': activityDateValue, // ✅ Unified Activity Date (DATE type, YYYY-MM-DD format)
         'Unit': kpiData['Unit'] || kpiData.unit || '',
         'Section': kpiData['Section'] || kpiData.section || '', // ✅ Section field (same as Planned)
         'Zone': formattedZone, // ✅ Format Zone as: full code + zone
@@ -1880,14 +1904,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       if (updateData.unit !== undefined) {
         dbUpdateData['Unit'] = updateData.unit
-      }
-      
-      if (updateData.target_date !== undefined) {
-        dbUpdateData['Target Date'] = updateData.target_date || null
-      }
-      
-      if (updateData.actual_date !== undefined) {
-        dbUpdateData['Actual Date'] = updateData.actual_date || null
       }
       
       if (updateData.activity_date !== undefined) {
@@ -2575,33 +2591,19 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         }
       }
       
-      // ✅ FIXED: Date range filter - Use EXACT SAME LOGIC as Date column in table
-      // Priority: Day, Actual Date (for Actual), Target Date (for Planned), Activity Date
+      // ✅ Date range filter - Use Activity Date (unified date field)
+      // Priority: Day, Activity Date
       if (dateRange.from || dateRange.to) {
         const rawKPIDate = (kpi as any).raw || {}
         
         // Priority 1: Day column (if available and formatted)
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
         
-        // Priority 2: Actual Date (for Actual KPIs) or Target Date (for Planned KPIs)
-        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
-        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
-        
-        // Priority 3: Activity Date
+        // Priority 2: Activity Date (unified date field, filtered by Input Type in queries)
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
-        // Determine which date to use based on Input Type (SAME AS TABLE COLUMN)
-        let dateToUse = ''
-        if (kpi.input_type === 'Actual' && actualDateValue) {
-          dateToUse = actualDateValue
-        } else if (kpi.input_type === 'Planned' && targetDateValue) {
-          dateToUse = targetDateValue
-        } else if (dayValue) {
-          // If Day is available, try to use it or fallback to Activity Date
-          dateToUse = activityDateValue || dayValue
-        } else {
-          dateToUse = activityDateValue || actualDateValue || targetDateValue
-        }
+        // Use Activity Date (or Day if Activity Date not available)
+        let dateToUse = activityDateValue || dayValue
         
         // If no date found, skip this KPI (don't include it in filtered results)
         if (!dateToUse) {
@@ -3108,8 +3110,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Zone': row['Zone'] || row['zone'] || '',
         'Drilled Meters': row['Drilled Meters'] || row['drilled_meters'] || '0',
         'Value': row['Value'] || row['value'] || '0',
-        'Target Date': row['Target Date'] || row['target_date'] || '',
-        'Actual Date': row['Actual Date'] || row['actual_date'] || '',
         'Activity Date': row['Activity Date'] || row['activity_date'] || '',
         'Day': row['Day'] || row['day'] || '',
         'Recorded By': row['Recorded By'] || row['recorded_by'] || '',
@@ -3155,8 +3155,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       'Input Type': kpi.input_type,
       'Quantity': kpi.quantity,
       'Unit': kpi.unit,
-      'Target Date': kpi.target_date,
-      'Actual Date': (kpi as any).actual_date || '',
       'Activity Date': kpi.activity_date || '',
       'Day': (kpi as any).day || '',
       'Section': kpi.section,
@@ -3183,8 +3181,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     'Zone',
     'Drilled Meters',
     'Value',
-    'Target Date',
-    'Actual Date',
     'Activity Date',
     'Day',
     'Recorded By',

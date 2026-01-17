@@ -207,6 +207,15 @@ export default function SmartKPIPage() {
         found_project: foundProjectForSave ? foundProjectForSave.project_name : 'Not found'
       })
       
+      // ✅ Get Activity Date (unified field) - prioritize Activity Date, fallback to Actual Date or Target Date
+      const activityDate = kpiData['Activity Date'] || 
+                          kpiData.activity_date || 
+                          kpiData['Actual Date'] || 
+                          kpiData.actual_date || 
+                          kpiData['Target Date'] || 
+                          kpiData.target_date || 
+                          new Date().toISOString().split('T')[0]
+      
       const standardizedData = KPIConsistencyManager.createStandardKPIForSave({
         projectCode: finalProjectCode, // ✅ This will be used for Project Full Code
         projectSubCode: kpiData['Project Sub Code'] || foundProjectForSave?.project_sub_code || '',
@@ -216,8 +225,7 @@ export default function SmartKPIPage() {
         quantity: finalQuantity,
         unit: kpiData['Unit'] || kpiData.unit || '',
         inputType: 'Actual', // Always Actual for manual entry
-        targetDate: kpiData['Target Date'] || '',
-        actualDate: kpiData['Actual Date'] || kpiData.actual_date || new Date().toISOString().split('T')[0],
+        activityDate: activityDate, // ✅ Unified date field (replaces targetDate and actualDate)
         // ✅ Map Zone Ref/Number to Zone (NOT to Section - Section is separate)
         // ✅ NOT from Section - Section is separate from Zone
         zoneRef: kpiData['Zone Ref'] || kpiData.zone_ref || '',

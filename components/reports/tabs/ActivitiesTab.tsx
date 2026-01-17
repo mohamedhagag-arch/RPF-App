@@ -415,18 +415,14 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
         matchingKPIs.forEach((kpi: any) => {
           const rawKPI = (kpi as any).raw || {}
           
-          // Get Date from Date column
+          // Get Date from Activity Date column (for Planned KPIs, filtered by Input Type = 'Planned')
           let kpiDateStr = ''
-          if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
-            kpiDateStr = kpi.target_date.toString().trim()
-          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+          if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
             kpiDateStr = kpi.activity_date.toString().trim()
-          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Date'].toString().trim()
-          } else if (rawKPI['Target Date'] && rawKPI['Target Date'].toString().trim() !== '' && rawKPI['Target Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Target Date'].toString().trim()
           } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
           }
           
           if (kpiDateStr) {
@@ -642,20 +638,14 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
         matchingKPIs.forEach((kpi: any) => {
           const rawKPI = (kpi as any).raw || {}
           
-          // Get Date from Date/Actual Date column
+          // Get Date from Activity Date column (for Actual KPIs, filtered by Input Type = 'Actual')
           let kpiDateStr = ''
-          if (kpi.actual_date && kpi.actual_date.toString().trim() !== '' && kpi.actual_date !== 'N/A') {
-            kpiDateStr = kpi.actual_date.toString().trim()
-          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+          if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
             kpiDateStr = kpi.activity_date.toString().trim()
-          } else if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
-            kpiDateStr = kpi.target_date.toString().trim()
-          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Date'].toString().trim()
-          } else if (rawKPI['Actual Date'] && rawKPI['Actual Date'].toString().trim() !== '' && rawKPI['Actual Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Actual Date'].toString().trim()
           } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
           }
           
           if (kpiDateStr) {

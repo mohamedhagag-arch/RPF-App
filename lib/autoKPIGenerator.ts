@@ -12,8 +12,7 @@ export interface GeneratedKPI {
   activity_name: string
   quantity: number
   unit: string
-  target_date: string
-  activity_date: string
+  activity_date: string // ✅ Unified date field (replaces target_date)
   project_code: string
   project_sub_code: string
   project_full_code: string
@@ -131,8 +130,7 @@ export async function generateKPIsFromBOQ(
         activity_name: activity.activity_name || activity.activity || '',
         quantity: finalQuantity,
         unit: activity.unit || '',
-        target_date: date.toISOString().split('T')[0],
-        activity_date: date.toISOString().split('T')[0],
+        activity_date: date.toISOString().split('T')[0], // ✅ Unified date field (DATE type, YYYY-MM-DD format)
         project_code: projectCode, // ✅ Use project_full_code if available
         project_sub_code: activity.project_sub_code || '',
         project_full_code: projectFullCode, // ✅ Use project_full_code
@@ -277,17 +275,24 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
     // Convert to database format
     // ✅ AUTO-APPROVE: All Planned KPIs are automatically approved on creation
     // ✅ FIX: Use project_full_code as Project Code if available (e.g., "P4110-P")
-    const dbKPIs = kpis.map(kpi => ({
-      'Project Full Code': kpi.project_full_code,
-      'Project Code': kpi.project_full_code || kpi.project_code, // ✅ Use full_code as code if available
-      'Project Sub Code': kpi.project_sub_code,
-      'Activity Name': kpi.activity_name,
-      'Activity Division': kpi.activity_division || '', // ✅ Division field
-      'Activity Timing': kpi.activity_timing || 'post-commencement', // ✅ Activity Timing field
-      'Quantity': kpi.quantity.toString(),
-      'Input Type': 'Planned',
-      'Target Date': kpi.target_date,
-      'Activity Date': kpi.activity_date,
+    let defaultDateUsed = false
+    const dbKPIs = kpis.map(kpi => {
+      // ✅ Check if default date is needed
+      const activityDate = kpi.activity_date || '2025-12-31'
+      if (activityDate === '2025-12-31' && !kpi.activity_date) {
+        defaultDateUsed = true
+      }
+      
+      return {
+        'Project Full Code': kpi.project_full_code,
+        'Project Code': kpi.project_full_code || kpi.project_code, // ✅ Use full_code as code if available
+        'Project Sub Code': kpi.project_sub_code,
+        'Activity Name': kpi.activity_name,
+        'Activity Division': kpi.activity_division || '', // ✅ Division field
+        'Activity Timing': kpi.activity_timing || 'post-commencement', // ✅ Activity Timing field
+        'Quantity': kpi.quantity.toString(),
+        'Input Type': 'Planned',
+        'Activity Date': activityDate, // ✅ Unified date field (DATE type, YYYY-MM-DD format, default if empty)
       'Unit': kpi.unit,
       // ✅ Section and Zone are separate fields
       'Section': kpi.section || '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
@@ -309,7 +314,13 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
       'Day': kpi.day,
       'Approval Status': 'approved', // ✅ Auto-approve Planned KPIs
       'created_by': createdByValue // ✅ Set created_by
-    }))
+      }
+    })
+    
+    // ✅ Show notification if default date was used
+    if (defaultDateUsed) {
+      console.warn('⚠️ Some KPIs used default date (2025-12-31) because Activity Date was empty. Please check activity dates.')
+    }
     
     console.log('📦 Database format sample:', JSON.stringify(dbKPIs[0], null, 2))
     console.log('🎯 Inserting into UNIFIED KPI table')
@@ -327,13 +338,21 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
       console.error('   Details:', error.details)
       console.error('   Hint:', error.hint)
       
-      // ✅ Helpful error message for missing Activity Timing column
-      if (error.message && error.message.includes("Activity Timing") && error.message.includes("schema cache")) {
-        console.error('')
-        console.error('🔧 SOLUTION: The "Activity Timing" column is missing from the KPI table.')
-        console.error('   Please run the migration script: Database/add-activity-timing-to-kpi.sql')
-        console.error('   This will add the required column to the "Planning Database - KPI" table.')
-        console.error('')
+      // ✅ Helpful error message for missing columns
+      if (error.message && error.message.includes("schema cache")) {
+        if (error.message.includes("Activity Timing")) {
+          console.error('')
+          console.error('🔧 SOLUTION: The "Activity Timing" column is missing from the KPI table.')
+          console.error('   Please run the migration script: Database/add-activity-timing-to-kpi.sql')
+          console.error('   This will add the required column to the "Planning Database - KPI" table.')
+          console.error('')
+        } else if (error.message.includes("Target Date")) {
+          console.error('')
+          console.error('🔧 SOLUTION: The "Target Date" column has been removed. Use "Activity Date" instead.')
+          console.error('   This error indicates the code still references the old "Target Date" column.')
+          console.error('   Please check lib/autoKPIGenerator.ts and remove all "Target Date" references.')
+          console.error('')
+        }
       }
       
       throw error
@@ -359,7 +378,8 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
         ? `Successfully replaced ${deletedCount} old KPIs with ${data?.length || 0} new KPI records`
         : `Successfully generated and saved ${data?.length || 0} KPI records`,
       savedCount: data?.length || 0,
-      deletedCount
+      deletedCount,
+      defaultDateUsed // ✅ Return flag for notification
     }
     
   } catch (error: any) {
@@ -378,7 +398,7 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
 export async function generateAndSaveKPIs(
   activity: BOQActivity,
   config?: WorkdaysConfig
-): Promise<{ success: boolean; message: string; kpisGenerated: number; kpisSaved: number }> {
+): Promise<{ success: boolean; message: string; kpisGenerated: number; kpisSaved: number; defaultDateUsed?: boolean }> {
   try {
     console.log('🚀 Starting KPI generation for:', activity.activity_name)
     
@@ -390,7 +410,8 @@ export async function generateAndSaveKPIs(
         success: false,
         message: 'No KPIs generated - check activity dates and configuration',
         kpisGenerated: 0,
-        kpisSaved: 0
+        kpisSaved: 0,
+        defaultDateUsed: false
       }
     }
     
@@ -401,7 +422,8 @@ export async function generateAndSaveKPIs(
       success: saveResult.success,
       message: saveResult.message,
       kpisGenerated: kpis.length,
-      kpisSaved: saveResult.savedCount
+      kpisSaved: saveResult.savedCount,
+      defaultDateUsed: saveResult.defaultDateUsed || false // ✅ Pass through default date flag
     }
     
   } catch (error: any) {
@@ -410,7 +432,8 @@ export async function generateAndSaveKPIs(
       success: false,
       message: error.message || 'Failed to generate and save KPIs',
       kpisGenerated: 0,
-      kpisSaved: 0
+      kpisSaved: 0,
+      defaultDateUsed: false
     }
   }
 }
@@ -471,7 +494,7 @@ export async function updateExistingKPIs(
       .eq('Project Full Code', projectFullCode)
       .eq('Activity Name', oldActivityName)
       .eq('Input Type', 'Planned')
-      .order('Target Date', { ascending: true })
+      .order('Activity Date', { ascending: true })
     
     if (kpisByFullCode && Array.isArray(kpisByFullCode) && kpisByFullCode.length > 0) {
       existingKPIs = kpisByFullCode
@@ -486,7 +509,7 @@ export async function updateExistingKPIs(
           .eq('Project Sub Code', projectSubCode)
           .eq('Activity Name', oldActivityName)
           .eq('Input Type', 'Planned')
-          .order('Target Date', { ascending: true })
+          .order('Activity Date', { ascending: true })
         
         if (kpisByCodeAndSub && Array.isArray(kpisByCodeAndSub) && kpisByCodeAndSub.length > 0) {
           existingKPIs = kpisByCodeAndSub
@@ -499,7 +522,7 @@ export async function updateExistingKPIs(
             .eq('Project Code', projectCode)
             .eq('Activity Name', oldActivityName)
             .eq('Input Type', 'Planned')
-            .order('Target Date', { ascending: true })
+            .order('Activity Date', { ascending: true })
           
           if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {
             existingKPIs = kpisByCode
@@ -514,7 +537,7 @@ export async function updateExistingKPIs(
           .eq('Project Code', projectCode)
           .eq('Activity Name', oldActivityName)
           .eq('Input Type', 'Planned')
-          .order('Target Date', { ascending: true })
+          .order('Activity Date', { ascending: true })
         
         if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {
           existingKPIs = kpisByCode
@@ -602,8 +625,7 @@ export async function updateExistingKPIs(
             'Activity Timing': newKPI.activity_timing || 'post-commencement', // ✅ Update Activity Timing
             'Quantity': newKPI.quantity.toString(),
             'Unit': newKPI.unit,
-            'Target Date': newKPI.target_date,
-            'Activity Date': newKPI.activity_date,
+            'Activity Date': newKPI.activity_date || '2025-12-31', // ✅ Unified date field (DATE type, YYYY-MM-DD format)
             'Project Code': newKPI.project_code,
             'Project Sub Code': newKPI.project_sub_code,
             'Project Full Code': newKPI.project_full_code,
@@ -640,8 +662,7 @@ export async function updateExistingKPIs(
             'Activity Timing': newKPI.activity_timing || 'post-commencement', // ✅ Update Activity Timing
             'Quantity': newKPI.quantity.toString(),
             'Unit': newKPI.unit,
-            'Target Date': newKPI.target_date,
-            'Activity Date': newKPI.activity_date,
+            'Activity Date': newKPI.activity_date || '2025-12-31', // ✅ Unified date field (DATE type, YYYY-MM-DD format)
             'Project Code': newKPI.project_code,
             'Project Sub Code': newKPI.project_sub_code,
             'Project Full Code': newKPI.project_full_code,
@@ -678,8 +699,8 @@ export async function updateExistingKPIs(
       console.log(`📊 Count breakdown: existing=${existingCount}, new=${newCount}, to_delete=${existingCount - newCount}`)
       
       // ✅ Verify KPIs are sorted by date
-      console.log(`📅 Existing KPIs dates (first 3):`, existingKPIs.slice(0, 3).map((k: any) => k['Target Date'] || k['Activity Date']))
-      console.log(`📅 New KPIs dates (first 3):`, newKPIs.slice(0, 3).map(k => k.target_date))
+      console.log(`📅 Existing KPIs dates (first 3):`, existingKPIs.slice(0, 3).map((k: any) => k['Activity Date']))
+      console.log(`📅 New KPIs dates (first 3):`, newKPIs.slice(0, 3).map(k => k.activity_date))
       
       // Update remaining KPIs
       console.log(`✏️ Updating ${newCount} remaining KPIs...`)
@@ -690,8 +711,8 @@ export async function updateExistingKPIs(
         // ✅ DEBUG: Log first update to verify matching
         if (i === 0) {
           console.log('🔍 First KPI update:', {
-            existing_date: existingKPI['Target Date'] || existingKPI['Activity Date'],
-            new_date: newKPI.target_date,
+            existing_date: existingKPI['Activity Date'],
+            new_date: newKPI.activity_date,
             existing_id: (existingKPI as any).id
           })
         }
@@ -705,8 +726,7 @@ export async function updateExistingKPIs(
             'Activity Timing': newKPI.activity_timing || 'post-commencement', // ✅ Update Activity Timing
             'Quantity': newKPI.quantity.toString(),
             'Unit': newKPI.unit,
-            'Target Date': newKPI.target_date,
-            'Activity Date': newKPI.activity_date,
+            'Activity Date': newKPI.activity_date || '2025-12-31', // ✅ Unified date field (DATE type, YYYY-MM-DD format)
             'Project Code': newKPI.project_code,
             'Project Sub Code': newKPI.project_sub_code,
             'Project Full Code': newKPI.project_full_code,
@@ -821,7 +841,7 @@ export async function updateExistingKPIs(
           .eq('Project Full Code', projectFullCode)
           .eq('Activity Name', activity.activity_name)
           .eq('Input Type', 'Planned')
-          .order('Target Date', { ascending: true })
+          .order('Activity Date', { ascending: true })
           .range(newCount, finalCount - 1) // Get the extra KPIs (after the first newCount)
         
         if (extraKPIsData && extraKPIsData.length > 0) {
@@ -913,8 +933,7 @@ export async function previewKPIs(activity: BOQActivity, config?: WorkdaysConfig
         activity_name: activity.activity_name || activity.activity || '',
         quantity: finalQuantity,
         unit: activity.unit || '',
-        target_date: date.toISOString().split('T')[0],
-        activity_date: date.toISOString().split('T')[0],
+        activity_date: date.toISOString().split('T')[0], // ✅ Unified date field (DATE type, YYYY-MM-DD format)
         project_code: activity.project_code || '',
         project_sub_code: activity.project_sub_code || '',
         project_full_code: activity.project_full_code || activity.project_code || '',

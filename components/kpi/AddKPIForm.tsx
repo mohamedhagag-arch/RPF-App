@@ -258,9 +258,7 @@ export function AddKPIForm() {
         'Value': calculatedValue.toString(), // ✅ Include Value (same as Planned)
         'Unit': unit,
         'Input Type': 'Actual', // Fixed to Actual only
-        'Actual Date': actualDate,
-        'Activity Date': actualDate, // ✅ Unified Activity Date (same as Planned)
-        'Target Date': actualDate, // ✅ Include Target Date (same as Planned)
+        'Activity Date': actualDate, // ✅ Map Actual Date to Activity Date (unified field)
         'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Section': section || '', // ✅ Section field (same as Planned)
         // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
@@ -287,8 +285,7 @@ export function AddKPIForm() {
         quantity: parseFloat(quantity),
         unit,
         input_type: 'Actual',
-        actual_date: actualDate,
-        activity_date: actualDate,
+        activity_date: actualDate, // ✅ Map to Activity Date (unified field)
         section,
         zone,
         day: dayValue,

@@ -90,7 +90,7 @@ export function isToday(date: string | null | undefined): boolean {
  */
 export function groupByWeek(kpis: any[]): Record<string, any[]> {
   return kpis.reduce((groups, kpi) => {
-    const date = kpi.activity_date || kpi.target_date || kpi.actual_date
+    const date = kpi.activity_date
     if (!date) return groups
     
     const d = new Date(date)
@@ -110,7 +110,7 @@ export function groupByWeek(kpis: any[]): Record<string, any[]> {
  */
 export function groupByMonth(kpis: any[]): Record<string, any[]> {
   return kpis.reduce((groups, kpi) => {
-    const date = kpi.activity_date || kpi.target_date || kpi.actual_date
+    const date = kpi.activity_date
     if (!date) return groups
     
     const d = new Date(date)
@@ -276,7 +276,7 @@ export function filterByDateRange(
   kpis: any[],
   startDate: Date,
   endDate: Date,
-  dateField: 'activity_date' | 'target_date' | 'actual_date' = 'activity_date'
+  dateField: 'activity_date' = 'activity_date' // ✅ Only Activity Date supported
 ): any[] {
   return kpis.filter(kpi => 
     isInDateRange(kpi[dateField], startDate, endDate)
