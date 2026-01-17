@@ -1433,7 +1433,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_code: baseProjectCode, // ✅ Base code (e.g., "P4110")
         project_full_code: fullProjectCode, // ✅ Full code (e.g., "P4110-P")
         project_sub_code: project?.project_sub_code || '',
-        activity_name: activityName,
+        activity_description: activityName,
         activity_division: activityDivision || project?.responsible_division || '', // ✅ Division field
         unit: unit || 'No.',
         planned_units: parseFloat(plannedUnits),
@@ -1771,7 +1771,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_code: finalProjectCode, // ✅ Use project_full_code if available
         project_sub_code: project?.project_sub_code || '',
         project_full_code: projectFullCode, // ✅ Use properly built project_full_code
-        activity_name: activityName,
+        activity_description: activityName,
         activity_division: activityDivision || project?.responsible_division || '',
         // ✅ Zone Number - NOT from Division (Division is separate from Zone)
         // ✅ Zone should come from zoneNumber input or zone selection, NOT from responsible_division
@@ -1796,7 +1796,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       
       // ✅ DEBUG: Log activityData to verify all fields
       console.log('📋 activityData created:', {
-        activity_name: activityData.activity_name,
+        activity_description: activityData.activity_description,
         activity_timing: activityData.activity_timing,
         has_value: activityData.has_value,
         affects_timeline: activityData.affects_timeline,
@@ -1811,7 +1811,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       
       // ✅ DEBUG: Log activity data to ensure all fields are present
       console.log('📋 Activity data for KPI generation:', {
-        activity_name: activityData.activity_name,
+        activity_description: activityData.activity_description,
         project_code: activityData.project_code,
         project_sub_code: activityData.project_sub_code,
         project_full_code: activityData.project_full_code,
@@ -1902,8 +1902,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           console.log('🔄 UPDATING KPIs for existing activity (any change triggers update)...')
           console.log('📦 Activity to update:', {
             id: activity.id,
-            old_activity_name: activity.activity_description || '', // ✅ OLD name
-            new_activity_name: activityData.activity_name, // ✅ NEW name
+            old_activity_description: activity.activity_description || '', // ✅ OLD name
+            new_activity_description: activityData.activity_description, // ✅ NEW name
             old_timing: activity.activity_timing,
             new_timing: activityData.activity_timing,
             project_full_code: activityData.project_full_code,
@@ -1933,7 +1933,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           }
           
           console.log('📋 Activity data for KPI update:', {
-            activity_name: activityData.activity_name,
+            activity_description: activityData.activity_description,
             activity_timing: activityData.activity_timing,
             has_value: activityData.has_value,
             affects_timeline: activityData.affects_timeline,
@@ -2003,7 +2003,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           if (kpisToSave.length === 0) {
             console.log('🔄 No preview available, generating KPIs on the fly...')
             console.log('📋 Activity data BEFORE fixes:', {
-              activity_name: activityData.activity_name,
+              activity_description: activityData.activity_description,
               activity_timing: activityData.activity_timing,
               has_value: activityData.has_value,
               affects_timeline: activityData.affects_timeline,
@@ -2050,7 +2050,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             }
             
             console.log('📋 Activity data AFTER fixes:', {
-              activity_name: activityData.activity_name,
+              activity_description: activityData.activity_description,
               activity_timing: activityData.activity_timing,
               has_value: activityData.has_value,
               affects_timeline: activityData.affects_timeline,
@@ -2063,7 +2063,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             })
             
             console.log('🔧 Calling generateKPIsFromBOQ with:', {
-              activity_name: activityData.activity_name,
+              activity_description: activityData.activity_description,
               activity_timing: activityData.activity_timing,
               planned_units: activityData.planned_units,
               start_date: activityData.planned_activity_start_date,
@@ -2078,7 +2078,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             // ✅ DEBUG: Log if no KPIs were generated for Pre Commencement
             if (kpisToSave.length === 0) {
               console.error('❌ ERROR: No KPIs generated!', {
-                activity_name: activityData.activity_name,
+                activity_description: activityData.activity_description,
                 activity_timing: activityData.activity_timing,
                 planned_units: activityData.planned_units,
                 start_date: activityData.planned_activity_start_date,
@@ -2093,7 +2093,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
               // ✅ Additional debugging for Pre Commencement
               if (activityData.activity_timing === 'pre-commencement') {
                 console.error('❌ CRITICAL: Pre Commencement activity generated 0 KPIs!', {
-                  activity_name: activityData.activity_name,
+                  activity_description: activityData.activity_description,
                   activity_timing: activityData.activity_timing,
                   planned_units: activityData.planned_units,
                   start_date: activityData.planned_activity_start_date,

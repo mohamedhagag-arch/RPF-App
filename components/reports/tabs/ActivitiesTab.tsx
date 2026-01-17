@@ -37,17 +37,16 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
     }
     
     try {
-      const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const projectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim()
-      const zoneRef = (activity.zone_ref || '').toString().trim().toLowerCase()
       const zoneNumber = (activity.zone_number || '').toString().trim().toLowerCase()
       
       // Filter KPIs for this activity
       const activityKPIs = kpis.filter((kpi: any) => {
-        const kpiActivityName = String(kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = String(kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any).raw?.['Activity Description'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
         const kpiProjectFullCode = String(kpi.project_full_code || kpi['Project Full Code'] || (kpi as any).raw?.['Project Full Code'] || '').toString().trim()
         const kpiProjectCode = String(kpi.project_code || kpi['Project Code'] || (kpi as any).raw?.['Project Code'] || '').toString().trim()
-        const kpiZone = String(kpi.zone || kpi['Zone'] || (kpi as any).raw?.['Zone'] || '').toString().trim().toLowerCase()
+        const kpiZone = String((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || kpi['Zone'] || (kpi as any).raw?.['Zone Number'] || (kpi as any).raw?.['Zone'] || '').toString().trim().toLowerCase()
         
         // Match activity name
         const activityMatch = kpiActivityName === activityName || 
@@ -65,11 +64,10 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
         if (!projectMatch) return false
         
         // Match zone if available
-        if (zoneRef && zoneRef !== 'enabling division' && zoneNumber) {
-          const zoneMatch = kpiZone === zoneRef || 
-                           kpiZone === zoneNumber ||
-                           kpiZone.includes(zoneRef) ||
-                           kpiZone.includes(zoneNumber)
+        if (zoneNumber && zoneNumber !== 'enabling division' && zoneNumber !== '0') {
+          const zoneMatch = kpiZone === zoneNumber ||
+                           kpiZone.includes(zoneNumber) ||
+                           zoneNumber.includes(kpiZone)
           if (!zoneMatch) return false
         }
         
@@ -101,17 +99,16 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
     }
     
     try {
-      const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const projectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim()
-      const zoneRef = (activity.zone_ref || '').toString().trim().toLowerCase()
       const zoneNumber = (activity.zone_number || '').toString().trim().toLowerCase()
       
       // Filter KPIs for this activity (same logic as calculateActualUnits)
       const activityKPIs = kpis.filter((kpi: any) => {
-        const kpiActivityName = String(kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = String(kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any).raw?.['Activity Description'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
         const kpiProjectFullCode = String(kpi.project_full_code || kpi['Project Full Code'] || (kpi as any).raw?.['Project Full Code'] || '').toString().trim()
         const kpiProjectCode = String(kpi.project_code || kpi['Project Code'] || (kpi as any).raw?.['Project Code'] || '').toString().trim()
-        const kpiZone = String(kpi.zone || kpi['Zone'] || (kpi as any).raw?.['Zone'] || '').toString().trim().toLowerCase()
+        const kpiZone = String((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || kpi['Zone'] || (kpi as any).raw?.['Zone Number'] || (kpi as any).raw?.['Zone'] || '').toString().trim().toLowerCase()
         
         // Match activity name
         const activityMatch = kpiActivityName === activityName || 
@@ -129,11 +126,10 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
         if (!projectMatch) return false
         
         // Match zone if available
-        if (zoneRef && zoneRef !== 'enabling division' && zoneNumber) {
-          const zoneMatch = kpiZone === zoneRef || 
-                           kpiZone === zoneNumber ||
-                           kpiZone.includes(zoneRef) ||
-                           kpiZone.includes(zoneNumber)
+        if (zoneNumber && zoneNumber !== 'enabling division' && zoneNumber !== '0') {
+          const zoneMatch = kpiZone === zoneNumber ||
+                           kpiZone.includes(zoneNumber) ||
+                           zoneNumber.includes(kpiZone)
           if (!zoneMatch) return false
         }
         
@@ -277,9 +273,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
   const getActivityZone = (activity: BOQActivity): string => {
     const rawActivity = (activity as any).raw || {}
     let zoneValue = activity.zone_number || 
-                   activity.zone_ref || 
                    rawActivity['Zone Number'] ||
-                   rawActivity['Zone Ref'] ||
                    rawActivity['Zone #'] ||
                    ''
     
@@ -302,7 +296,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
     const rawKPI = (kpi as any).raw || {}
     // ✅ NOT from Section - Section is separate from Zone
     const zoneRaw = (
-      kpi.zone || 
+      (kpi as any).zone_number || (kpi as any).zone || 
       rawKPI['Zone'] || 
       rawKPI['Zone Number'] || 
       rawKPI['Zone Ref'] ||
@@ -361,7 +355,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
     
     // PRIORITY 1: Get from first Planned KPI Date column
     if (kpis && kpis.length > 0) {
-      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       const activityZone = getActivityZone(activity)
@@ -376,7 +370,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
         if (kpiInputType !== 'planned') return false
         
         // 2. Activity Name must match
-        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
         if (!kpiActivityName || !activityName) return false
         if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
           return false
@@ -473,7 +467,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
     
     // PRIORITY 1: Get from last Planned KPI Date column
     if (kpis && kpis.length > 0) {
-      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       const activityZone = getActivityZone(activity)
@@ -486,7 +480,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
         const kpiInputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
         if (kpiInputType !== 'planned') return false
         
-        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
         if (!kpiActivityName || !activityName) return false
         if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
           return false
@@ -524,12 +518,15 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
           const rawKPI = (kpi as any).raw || {}
           
           let kpiDateStr = ''
-          if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
-            kpiDateStr = kpi.target_date.toString().trim()
-          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+          // Use activity_date which is the unified date field
+          if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
             kpiDateStr = kpi.activity_date.toString().trim()
+          } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Activity Date'].toString().trim()
           } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Date'].toString().trim()
+          } else if ((kpi as any).target_date && (kpi as any).target_date.toString().trim() !== '' && (kpi as any).target_date !== 'N/A') {
+            kpiDateStr = (kpi as any).target_date.toString().trim()
           } else if (rawKPI['Target Date'] && rawKPI['Target Date'].toString().trim() !== '' && rawKPI['Target Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Target Date'].toString().trim()
           } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
@@ -584,7 +581,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
     
     // PRIORITY 1: Get from first Actual KPI Date column
     if (kpis && kpis.length > 0) {
-      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       const activityZone = getActivityZone(activity)
@@ -599,7 +596,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
         if (kpiInputType !== 'actual') return false
         
         // 2. Activity Name must match
-        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
         if (!kpiActivityName || !activityName) return false
         if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
           return false
@@ -702,7 +699,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
     
     // PRIORITY 1: Get from last Actual KPI Date column
     if (kpis && kpis.length > 0) {
-      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       const activityZone = getActivityZone(activity)
@@ -715,7 +712,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
         const kpiInputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
         if (kpiInputType !== 'actual') return false
         
-        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
         if (!kpiActivityName || !activityName) return false
         if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
           return false
@@ -753,12 +750,13 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
           const rawKPI = (kpi as any).raw || {}
           
           let kpiDateStr = ''
-          if (kpi.actual_date && kpi.actual_date.toString().trim() !== '' && kpi.actual_date !== 'N/A') {
-            kpiDateStr = kpi.actual_date.toString().trim()
-          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+          // Use activity_date which is the unified date field
+          if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
             kpiDateStr = kpi.activity_date.toString().trim()
-          } else if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
-            kpiDateStr = kpi.target_date.toString().trim()
+          } else if ((kpi as any).actual_date && (kpi as any).actual_date.toString().trim() !== '' && (kpi as any).actual_date !== 'N/A') {
+            kpiDateStr = (kpi as any).actual_date.toString().trim()
+          } else if ((kpi as any).target_date && (kpi as any).target_date.toString().trim() !== '' && (kpi as any).target_date !== 'N/A') {
+            kpiDateStr = (kpi as any).target_date.toString().trim()
           } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Date'].toString().trim()
           } else if (rawKPI['Actual Date'] && rawKPI['Actual Date'].toString().trim() !== '' && rawKPI['Actual Date'] !== 'N/A') {
@@ -860,9 +858,9 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
       activities.forEach((activity: BOQActivity) => {
         const currency = getActivityCurrency(activity)
         const progressValue = calculateProgress(activity)
-        const zoneDisplay = activity.zone_ref && activity.zone_ref !== 'Enabling Division' 
-          ? `${activity.zone_ref}${activity.zone_number ? ` - ${activity.zone_number}` : ''}`
-          : activity.zone_number || 'N/A'
+        const zoneDisplay = activity.zone_number && activity.zone_number !== 'Enabling Division' && activity.zone_number !== '0'
+          ? activity.zone_number
+          : 'N/A'
         
         const plannedStartDate = getPlannedStartDate(activity)
         const plannedEndDate = getPlannedEndDate(activity)
@@ -889,7 +887,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
           : 'Not Started'
         
         const row: any = {
-          'Activity Name': activity.activity_name || activity.activity || 'N/A',
+          'Activity Name': activity.activity_description || 'N/A',
           'Project': activity.project_full_code || activity.project_code || 'N/A',
           'Zone': zoneDisplay,
           'Division': activity.activity_division || 'N/A',
@@ -1223,9 +1221,9 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
                   paginatedActivities.map((activity: BOQActivity) => {
                     const currency = getActivityCurrency(activity)
                     const progress = calculateProgress(activity)
-                    const zoneDisplay = activity.zone_ref && activity.zone_ref !== 'Enabling Division' 
-                      ? `${activity.zone_ref}${activity.zone_number ? ` - ${activity.zone_number}` : ''}`
-                      : activity.zone_number || 'N/A'
+                    const zoneDisplay = activity.zone_number && activity.zone_number !== 'Enabling Division' && activity.zone_number !== '0'
+                      ? activity.zone_number
+                      : 'N/A'
                     const plannedStartDate = getPlannedStartDate(activity)
                     const plannedEndDate = getPlannedEndDate(activity)
                     const actualStartDate = getActualStartDate(activity)
@@ -1265,7 +1263,7 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
                       <tr key={activity.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                         <td className="border border-gray-300 dark:border-gray-600 px-5 py-4" style={{ minWidth: '300px' }}>
                           <div className="font-medium text-gray-900 dark:text-white">
-                            {activity.activity_name || activity.activity || 'N/A'}
+                            {activity.activity_description || 'N/A'}
                           </div>
                           {activity.activity_timing && (
                             <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">

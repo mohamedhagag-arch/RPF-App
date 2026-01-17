@@ -521,7 +521,7 @@ export const DelayedActivitiesTab = memo(function DelayedActivitiesTab({ activit
                               daysOverdue = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
                             }
                             
-                            const zone = (activity.zone_ref || activity.zone_number || '').toString().trim()
+                            const zone = (activity.zone_number || '').toString().trim()
                             
                             return (
                               <tr
@@ -531,7 +531,7 @@ export const DelayedActivitiesTab = memo(function DelayedActivitiesTab({ activit
                                 <td className="border border-gray-300 dark:border-gray-600 px-4 py-3">
                                   <div>
                                     <p className="font-medium text-gray-900 dark:text-white">
-                                      {activity.activity_name || activity.activity || 'Unknown Activity'}
+                                      {activity.activity_description || 'Unknown Activity'}
                                     </p>
                                     {activity.activity_division && (
                                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">

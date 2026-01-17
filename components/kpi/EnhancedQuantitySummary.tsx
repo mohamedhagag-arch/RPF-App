@@ -466,7 +466,7 @@ export function EnhancedQuantitySummary({
         if (zone && zone.trim() !== '') {
           const beforeZoneFilter = plannedKPIs.length
           plannedKPIs = plannedKPIs.filter((kpi: any) => {
-            const kpiZoneRaw = (kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0').toString().trim()
+            const kpiZoneRaw = (kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || (kpi as any).zone || '0').toString().trim()
             if (!kpiZoneRaw || kpiZoneRaw === '') {
               // ✅ CRITICAL: If zone is provided but KPI has no zone, exclude it
               // This ensures zone-specific filtering works correctly
@@ -514,7 +514,7 @@ export function EnhancedQuantitySummary({
               inputType: kpi['Input Type'] || kpi.input_type,
               activityName: kpi['Activity Description'] || kpi['Activity Name'] || kpi.activity_description || (kpi as any).activity_name,
               projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
-              zone: kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0'
+              zone: kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || (kpi as any).zone || '0'
             }))
           })
         } else {
@@ -685,7 +685,7 @@ export function EnhancedQuantitySummary({
             const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || '').toString().trim().toUpperCase()
             const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || '').toString().trim().toUpperCase()
             const kpiActivityName = (kpi.activity_description || kpi['Activity Description'] || (kpi as any).activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
-            const kpiZoneRaw = (kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0').toString().trim()
+            const kpiZoneRaw = (kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || (kpi as any).zone || '0').toString().trim()
             
             matchingResults.push({
               kpiId: kpi.id,
@@ -729,7 +729,7 @@ export function EnhancedQuantitySummary({
               activityName: kpi['Activity Description'] || kpi['Activity Name'] || kpi.activity_description || (kpi as any).activity_name,
               projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
               projectCode: kpi['Project Code'] || kpi.project_code,
-              zone: kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0',
+              zone: kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || (kpi as any).zone || '0',
               quantity: parseQuantity(kpi),
               inputType: kpi['Input Type'] || kpi.input_type
             })),

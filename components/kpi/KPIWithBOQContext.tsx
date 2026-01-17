@@ -50,7 +50,7 @@ export function KPIWithBOQContext({ projectCode, activityName }: KPIWithBOQConte
         <div className="bg-white dark:bg-gray-800 rounded-lg p-3">
           <div className="text-xs text-gray-500 mb-2">BOQ Activity</div>
           <div className="font-semibold text-gray-900 dark:text-white mb-2">
-            {boq.activity_name}
+            {boq.activity_description}
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>

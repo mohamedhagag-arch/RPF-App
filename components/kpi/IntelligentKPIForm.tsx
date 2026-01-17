@@ -185,7 +185,7 @@ export function IntelligentKPIForm({
       // ✅ CRITICAL FIX: Extract Zone Number (merged from Zone and Zone Number)
       // Zone Number may be stored as "P8888-01-1", "01-1", or just "1"
       // We need to extract the actual zone number value
-      const rawZone = (kpi['Zone Number'] || kpi.zone_number || kpi['Zone'] || kpi.zone || '0').toString().trim()
+      const rawZone = (kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || (kpi as any).zone || '0').toString().trim()
       const projectFullCode = (kpi['Project Full Code'] || kpi.project_full_code || '').toString().trim()
       const projectCode = (kpi['Project Code'] || kpi.project_code || '').toString().trim()
       
@@ -266,7 +266,7 @@ export function IntelligentKPIForm({
         quantity: kpi['Quantity'] || kpi.quantity,
         unit: kpi['Unit'] || kpi.unit,
         activityDate: formatDateForInput(dateToUse),
-        zone: kpi['Zone Number'] || kpi.zone_number || kpi['Zone'] || kpi.zone || '0',
+        zone: kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || (kpi as any).zone || '0',
         zoneNumber: kpi['Zone Number'] || kpi.zone_number || '0',
         day: kpi['Day'] || kpi.day,
         drilledMeters: kpi['Drilled Meters'] || kpi.drilled_meters

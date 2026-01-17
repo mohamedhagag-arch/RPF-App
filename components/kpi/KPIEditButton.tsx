@@ -136,9 +136,9 @@ export function EnhancedKPIEditButton({ kpi, onEdit, className = '' }: KPIEditBu
 
   const getTooltipText = () => {
     if (isPlanned) {
-      return `Edit planned KPI target: ${kpi.activity_name}`
+      return `Edit planned KPI target: ${(kpi as any).activity_description || (kpi as any).activity_name || 'KPI'}`
     } else {
-      return `Edit actual KPI achievement: ${kpi.activity_name}`
+      return `Edit actual KPI achievement: ${(kpi as any).activity_description || (kpi as any).activity_name || 'KPI'}`
     }
   }
 

@@ -545,9 +545,9 @@ export function useReportsData() {
           if (activity.id) {
             activitiesMap.set(activity.id, activity)
           }
-          // Also index by activity_name for matching
-          if (activity.activity_name) {
-            const key = `${activity.project_full_code || activity.project_code}_${activity.activity_name}`
+          // Also index by activity_description for matching
+          if (activity.activity_description) {
+            const key = `${activity.project_full_code || activity.project_code}_${activity.activity_description}`
             activitiesMap.set(key, activity)
           }
         })
@@ -566,13 +566,14 @@ export function useReportsData() {
         mappedKPIs.forEach((kpi: any) => {
           let needsFix = false
           
-          // Fix Activity Name from activity_id
-          if ((!kpi.activity_name || kpi.activity_name === 'N/A' || kpi.activity_name === '') && kpi.activity_id) {
+          // Fix Activity Description from activity_id
+          if ((!kpi.activity_description || kpi.activity_description === 'N/A' || kpi.activity_description === '') && kpi.activity_id) {
             const activity = activitiesMap.get(kpi.activity_id)
-            if (activity && activity.activity_name) {
-              kpi.activity_name = activity.activity_name
-              kpi.activity = activity.activity_name
-              kpi.kpi_name = activity.activity_name
+            if (activity && activity.activity_description) {
+              kpi.activity_description = activity.activity_description
+              kpi.activity_name = activity.activity_description
+              kpi.activity = activity.activity_description
+              kpi.kpi_name = activity.activity_description
               needsFix = true
             }
           }
@@ -597,15 +598,16 @@ export function useReportsData() {
             }
           }
           
-          // Try to match Activity by project + activity name pattern
-          if ((!kpi.activity_name || kpi.activity_name === 'N/A' || kpi.activity_name === '') && kpi.project_full_code) {
-            // Try to find activity by matching project and any activity name
+          // Try to match Activity by project + activity description pattern
+          if ((!kpi.activity_description || kpi.activity_description === 'N/A' || kpi.activity_description === '') && kpi.project_full_code) {
+            // Try to find activity by matching project and any activity description
             activitiesMap.forEach((activity, key) => {
               if (key.includes('_') && activity.project_full_code === kpi.project_full_code && !needsFix) {
                 // Use first matching activity as fallback
-                kpi.activity_name = activity.activity_name || 'N/A'
-                kpi.activity = activity.activity_name || 'N/A'
-                kpi.kpi_name = activity.activity_name || 'N/A'
+                kpi.activity_description = activity.activity_description || 'N/A'
+                kpi.activity_name = activity.activity_description || 'N/A'
+                kpi.activity = activity.activity_description || 'N/A'
+                kpi.kpi_name = activity.activity_description || 'N/A'
                 needsFix = true
               }
             })

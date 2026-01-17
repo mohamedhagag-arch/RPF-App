@@ -99,7 +99,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
           }
         } else {
           // Use the activity name from the found activity
-          const activityName = (selectedActivity.activity_name || selectedActivity.activity || '').toLowerCase().trim()
+          const activityName = (selectedActivity.activity_description || '').toLowerCase().trim()
           selectedActivityNames.add(activityName)
         }
       })
@@ -107,7 +107,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
       // Filter by activity names (to include all zones for selected activities)
       if (selectedActivityNames.size > 0) {
         filtered = filtered.filter((activity: BOQActivity) => {
-          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+          const activityName = (activity.activity_description || '').toLowerCase().trim()
           return selectedActivityNames.has(activityName)
         })
       }
@@ -144,7 +144,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
     const uniqueActivitiesMap = new Map<string, { id: string; name: string; zone: string }>()
     
     projectActivities.forEach((activity: BOQActivity) => {
-      const activityName = (activity.activity_name || activity.activity || 'Unknown Activity').trim()
+      const activityName = (activity.activity_description || 'Unknown Activity').trim()
       const zone = (activity as any).zone_number || ((activity as any).raw || {})['Zone Number'] || '0'
       
       // Use normalized activity name as key to ensure uniqueness
@@ -319,16 +319,16 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
     
     // 2. Activity Name Matching (strict normalized match to avoid false positives)
     const normalizeName = (val: string) => val.toString().trim().toLowerCase()
-    const kpiActivityName = normalizeName(kpi.activity_name || rawKPI['Activity Name'] || '')
-    const activityName = normalizeName(activity.activity_name || activity.activity || '')
+    const kpiActivityName = normalizeName(kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '')
+    const activityName = normalizeName(activity.activity_description || '')
     const activityMatch = kpiActivityName && activityName && kpiActivityName === activityName
     
     if (!activityMatch) return false
     
     // 3. Zone Matching (FLEXIBLE - only enforce if both have zones AND they don't match)
     const rawActivity = (activity as any).raw || {}
-    const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
-    const kpiZone = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Number'] || '0').toString().trim()
+    const activityZone = (activity.zone_number || rawActivity['Zone Number'] || '').toString().trim()
+    const kpiZone = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKPI['Zone Number'] || rawKPI['Zone'] || '0').toString().trim()
     
     // Only enforce zone matching if BOTH activity and KPI have zones
     // If either doesn't have a zone, allow the match (flexible)
@@ -363,7 +363,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
     
     // 2. Activity Name Matching (case-insensitive, ignore zone)
     const normalizeName = (val: string) => val.toString().trim().toLowerCase()
-    const kpiActivityName = normalizeName(kpi.activity_name || rawKPI['Activity Name'] || rawKPI['Activity'] || '')
+    const kpiActivityName = normalizeName(kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || rawKPI['Activity Description'] || rawKPI['Activity Name'] || rawKPI['Activity'] || '')
     const normalizedActivityName = normalizeName(activityName)
     
     if (!kpiActivityName || !normalizedActivityName) return false
@@ -387,7 +387,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
       // Group activities by name
       const activitiesByName = new Map<string, BOQActivity[]>()
       projectActivities.forEach((activity: BOQActivity) => {
-        const activityName = (activity.activity_name || activity.activity || 'Unknown Activity').toLowerCase().trim()
+        const activityName = (activity.activity_description || 'Unknown Activity').toLowerCase().trim()
         if (!activitiesByName.has(activityName)) {
           activitiesByName.set(activityName, [])
         }
@@ -585,7 +585,8 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
         return {
           activity: {
             ...representativeActivity,
-            activity_name: activitiesWithSameName[0].activity_name || activitiesWithSameName[0].activity || 'Unknown Activity',
+            activity_name: activitiesWithSameName[0].activity_description || 'Unknown Activity', // Backward compatibility
+            activity_description: activitiesWithSameName[0].activity_description || 'Unknown Activity',
             // Mark as combined
             _isCombined: true,
             _allZones: activitiesWithSameName.map(a => {
@@ -633,20 +634,11 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
       const getKPIDate = (kpi: any): Date | null => {
         const raw = (kpi as any).raw || {}
         const dayValue = (kpi as any).day || raw['Day'] || ''
-        const actualDateValue = kpi.actual_date || raw['Actual Date'] || ''
-        const targetDateValue = kpi.target_date || raw['Target Date'] || ''
-        const activityDateValue = kpi.activity_date || raw['Activity Date'] || ''
+        // Use activity_date which is the unified date field
+        const activityDateValue = kpi.activity_date || raw['Activity Date'] || raw['Actual Date'] || raw['Target Date'] || ''
         
-        let dateStr = ''
-        if (kpi.input_type === 'Actual' && actualDateValue) {
-          dateStr = actualDateValue
-        } else if (kpi.input_type === 'Planned' && targetDateValue) {
-          dateStr = targetDateValue
-        } else if (dayValue) {
-          dateStr = activityDateValue || dayValue
-        } else {
-          dateStr = activityDateValue || actualDateValue || targetDateValue
-        }
+        // Use activity_date as the unified date field
+        let dateStr = activityDateValue || dayValue
         
         if (!dateStr) return null
         
@@ -1136,7 +1128,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
     }
     
     // Otherwise, create a stable ID based on activity properties
-    const activityName = (activity.activity_name || activity.activity || 'Unknown Activity').trim()
+    const activityName = (activity.activity_description || 'Unknown Activity').trim()
     const zone = activityData ? getActivityZone(activityData.activity || activity) : getActivityZone(activity)
     const projectCode = selectedProject?.project_full_code || selectedProject?.project_code || ''
     
@@ -1159,7 +1151,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
     if (selectedActivitiesForExport.size > 0) {
       activitiesToExport = activitiesToExport.filter((activityData: any) => {
         const activity = activityData.activity
-        const activityName = (activity.activity_name || activity.activity || 'Unknown Activity').trim()
+        const activityName = (activity.activity_description || 'Unknown Activity').trim()
         return selectedActivitiesForExport.has(activityName)
       })
     }
@@ -1203,7 +1195,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
         const tableById = activity.id ? tableRefs.current.get(activity.id) : null
         
         if (!chartById || !tableById) {
-          const activityName = activity.activity_name || activity.activity || 'Unknown Activity'
+          const activityName = activity.activity_description || 'Unknown Activity'
           missingElements.push(activityName)
         }
       }
@@ -1231,7 +1223,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
         }
         
         if (!chartElement || !tableElement) {
-          const activityName = activity.activity_name || activity.activity || 'Unknown Activity'
+          const activityName = activity.activity_description || 'Unknown Activity'
           stillMissing.push(activityName)
         }
       }
@@ -1336,7 +1328,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
           const activity = activityData.activity
           // Use stable ID that matches the one used when setting refs
           const activityId = getActivityStableId(activity, activityData)
-          const activityName = activity.activity_name || activity.activity || 'Unknown Activity'
+          const activityName = activity.activity_description || 'Unknown Activity'
           
           // Update progress
           setExportProgress({ current: globalIndex + 1, total: activitiesToExport.length })
@@ -1914,7 +1906,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
                               })
                               const foundActivity = projectActivities.find((a: BOQActivity) => a.id === activityId)
                               if (foundActivity) {
-                                const activityName = (foundActivity.activity_name || foundActivity.activity || '').toLowerCase().trim()
+                                const activityName = (foundActivity.activity_description || '').toLowerCase().trim()
                                 selectedActivityNames.add(activityName)
                               }
                             }
@@ -1946,7 +1938,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
                                 if (e.target.checked) {
                                   // Add all activity IDs that have the same name (all zones)
                                   projectActivities.forEach((a: BOQActivity) => {
-                                    const aName = (a.activity_name || a.activity || '').toLowerCase().trim()
+                                    const aName = (a.activity_description || '').toLowerCase().trim()
                                     if (aName === activityName) {
                                       newSet.add(a.id)
                                     }
@@ -1954,7 +1946,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
                                 } else {
                                   // Remove all activity IDs that have the same name
                                   projectActivities.forEach((a: BOQActivity) => {
-                                    const aName = (a.activity_name || a.activity || '').toLowerCase().trim()
+                                    const aName = (a.activity_description || '').toLowerCase().trim()
                                     if (aName === activityName) {
                                       newSet.delete(a.id)
                                     }
@@ -2166,7 +2158,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
       ) : (
         activitiesChartData.map((activityData: any, index: number) => {
           const activity = activityData.activity
-          const activityName = activity.activity_name || activity.activity || 'Unknown Activity'
+          const activityName = activity.activity_description || 'Unknown Activity'
           
           return (
             <Card key={activity.id || index} className="mb-6">
@@ -2544,7 +2536,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
                         const uniqueActivityNames = Array.from(new Set(
                           activitiesChartData.map((activityData: any) => {
                             const activity = activityData.activity
-                            return (activity.activity_name || activity.activity || 'Unknown Activity').trim()
+                            return (activity.activity_description || 'Unknown Activity').trim()
                           })
                         )).sort()
                         
@@ -2611,7 +2603,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
                     
                     activitiesChartData.forEach((activityData: any) => {
                       const activity = activityData.activity
-                      const activityName = (activity.activity_name || activity.activity || 'Unknown Activity').trim()
+                      const activityName = (activity.activity_description || 'Unknown Activity').trim()
                       
                       // Only include zones for selected activities
                       if (selectedActivitiesForExport.has(activityName)) {

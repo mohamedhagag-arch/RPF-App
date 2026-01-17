@@ -6,9 +6,11 @@
 export interface ProcessedKPI {
   id: string
   project_full_code: string
-  activity_name: string
+  activity_description: string // ✅ Unified activity field (replaces activity_name)
+  activity_name?: string // ✅ Backward compatibility
   section: string
-  zone: string
+  zone_number?: string // ✅ Unified zone field
+  zone?: string // ✅ Backward compatibility
   quantity: number
   input_type: 'Planned' | 'Actual'
   drilled_meters: number
@@ -73,16 +75,19 @@ export function processKPIRecord(kpi: any): ProcessedKPI & { raw?: any } {
       : 0
   const smartStatus = calculateSmartStatus(quantity, inputType)
   
-  // ✅ FIX: Preserve activity_name and project_full_code even if empty (don't convert to empty string)
-  const activityName = kpi.activity_name || kpi.activity || kpi.kpi_name || ''
+  // ✅ FIX: Use activity_description as unified field
+  const activityDescription = kpi.activity_description || kpi.activity_name || kpi.activity || kpi.kpi_name || ''
   const projectFullCode = kpi.project_full_code || (kpi as any).project_code || ''
+  const zoneNumber = (kpi as any).zone_number || kpi.zone || ''
   
   return {
     id: kpi.id,
     project_full_code: projectFullCode,
-    activity_name: activityName,
+    activity_description: activityDescription, // ✅ Unified field
+    activity_name: activityDescription, // ✅ Backward compatibility
     section: kpi.section || '',
-    zone: kpi.zone || '',
+    zone_number: zoneNumber, // ✅ Unified zone field
+    zone: zoneNumber, // ✅ Backward compatibility
     quantity: quantity,
     input_type: inputType as 'Planned' | 'Actual',
     drilled_meters: kpi.drilled_meters || 0,

@@ -49,7 +49,7 @@ export function calculateActivityProgress(
   
   // Get KPI data for this activity
   const activityKPIs = kpis.filter(kpi => 
-    kpi.activity_name === activity.activity_name &&
+    (kpi.activity_description || kpi.activity_name) === activity.activity_description &&
     kpi.project_full_code === activity.project_code &&
     kpi.input_type === 'Actual'
   )
@@ -91,7 +91,7 @@ export function calculateActivityProgress(
   
   return {
     activityId: activity.id,
-    activityName: activity.activity_name || '',
+    activityName: activity.activity_description || '',
     projectCode: activity.project_code || '',
     metrics: {
       plannedValue,
@@ -199,15 +199,15 @@ function calculateSchedulePerformance(kpis: KPIRecord[]): number {
   let onTimeCount = 0
   
   for (const kpi of kpis) {
-    const targetDate = new Date(kpi.target_date || '')
-    const actualDate = new Date(kpi.actual_date || '')
+    // Use activity_date as unified date field
+    const activityDate = kpi.activity_date ? new Date(kpi.activity_date) : null
     
-    if (kpi.actual_date) {
-      // If completed, check if on time
-      if (actualDate <= targetDate) onTimeCount++
+    if (activityDate) {
+      // If completed, check if on time (compare with today)
+      if (activityDate <= today) onTimeCount++
     } else {
-      // If not completed, check if still within target
-      if (targetDate >= today) onTimeCount++
+      // If not completed, assume on time for now
+      onTimeCount++
     }
   }
   
@@ -219,7 +219,7 @@ function calculateSchedulePerformance(kpis: KPIRecord[]): number {
  */
 function getLatestActualDate(kpis: KPIRecord[]): Date | undefined {
   const actualDates = kpis
-    .map(kpi => kpi.actual_date)
+    .map(kpi => kpi.activity_date)
     .filter(date => date)
     .map(date => new Date(date!))
     .sort((a, b) => b.getTime() - a.getTime())

@@ -57,7 +57,7 @@ export class KPIConsistencyManager {
       input_type: this.ensureInputType(normalized.input_type || record['Input Type'] || 'Planned'),
       
       // Date fields
-      activity_date: this.ensureString(normalized.activity_date || record['Activity Date'] || ''),
+      activity_date: this.ensureString((normalized as any).activity_date || record['Activity Date'] || ''),
       
       // Zone fields
       zone_number: this.ensureString(normalized.zone_number || record['Zone Number'] || '0'),

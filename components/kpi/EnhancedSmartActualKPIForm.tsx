@@ -718,7 +718,7 @@ export function EnhancedSmartActualKPIForm({
       kpi['Zone Number'] ||    // Zone Number column
       rawKPI['Zone'] ||        // Zone from raw data
       rawKPI['Zone Number'] || // Zone Number from raw data
-      kpi.zone ||              // Zone (lowercase field name)
+      (kpi as any).zone_number || (kpi as any).zone || // Zone (lowercase field name)
       kpi.zone_number ||       // Zone Number (lowercase field name)
       ''                        // Default to empty
     ).toString().trim()

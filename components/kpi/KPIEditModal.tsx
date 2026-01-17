@@ -119,7 +119,7 @@ export function KPIEditModal({
                   <Activity className="h-4 w-4 text-gray-500" />
                   <div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Activity</p>
-                    <p className="font-semibold text-gray-900 dark:text-white">{kpi.activity_name}</p>
+                    <p className="font-semibold text-gray-900 dark:text-white">{(kpi as any).activity_description || (kpi as any).activity_name || 'N/A'}</p>
                   </div>
                 </div>
                 

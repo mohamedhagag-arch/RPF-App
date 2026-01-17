@@ -69,7 +69,7 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
         project_full_code: kpi.project_full_code || '',
         activity_description: (kpi as any).activity_description || (kpi as any).activity_name || '' || kpi.activity_name || (kpi as any).activity || '',
         section: kpi.section || '',
-        zone: kpi.zone || (kpi as any).zone_number || '',
+        zone: (kpi as any).zone_number || (kpi as any).zone || '',
         quantity: kpi.quantity || 0,
         input_type: kpi.input_type || 'Planned',
         drilled_meters: kpi.drilled_meters || 0,

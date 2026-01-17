@@ -70,7 +70,8 @@ export function mapKPIPlannedFromDB(row: any): KPIPlanned {
     project_full_code: row['Project Full Code'] || '',
     project_code: row['Project Code'] || '',
     project_sub_code: row['Project Sub Code'] || '',
-    activity_name: row['Activity Name'] || '',
+    activity_description: row['Activity Description'] || row['Activity Name'] || '',
+    activity_name: row['Activity Description'] || row['Activity Name'] || '', // Backward compatibility
     activity: row['Activity'] || '',
     quantity: parseNum(row['Quantity']),
     section: row['Section'] || '',
@@ -98,7 +99,8 @@ export function mapKPIActualFromDB(row: any): KPIActual {
     project_full_code: row['Project Full Code'] || '',
     project_code: row['Project Code'] || '',
     project_sub_code: row['Project Sub Code'] || '',
-    activity_name: row['Activity Name'] || '',
+    activity_description: row['Activity Description'] || row['Activity Name'] || '',
+    activity_name: row['Activity Description'] || row['Activity Name'] || '', // Backward compatibility
     activity: row['Activity'] || '',
     quantity: parseNum(row['Quantity']),
     section: row['Section'] || '',
@@ -162,12 +164,13 @@ export function combineKPIs(
   
   // Group by project + activity
   planned.forEach(p => {
-    const key = `${p.project_full_code}-${p.activity_name}`
+    const activityName = p.activity_description || p.activity_name || ''
+    const key = `${p.project_full_code}-${activityName}`
     if (!combined.has(key)) {
       combined.set(key, {
         id: p.id,
         project_full_code: p.project_full_code,
-        activity_name: p.activity_name,
+        activity_name: activityName,
         planned_quantity: p.quantity,
         actual_quantity: 0,
         progress_percentage: 0,
@@ -187,7 +190,8 @@ export function combineKPIs(
   
   // Add actual values
   actual.forEach(a => {
-    const key = `${a.project_full_code}-${a.activity_name}`
+    const activityName = a.activity_description || a.activity_name || ''
+    const key = `${a.project_full_code}-${activityName}`
     if (combined.has(key)) {
       const existing = combined.get(key)!
       existing.actual_quantity += a.quantity
@@ -197,7 +201,7 @@ export function combineKPIs(
       combined.set(key, {
         id: a.id,
         project_full_code: a.project_full_code,
-        activity_name: a.activity_name,
+        activity_name: activityName,
         planned_quantity: 0,
         actual_quantity: a.quantity,
         progress_percentage: 100, // If no planned, assume complete

@@ -268,7 +268,7 @@ export async function calculateActualFromKPI(
       if (allProjectKPIs && allProjectKPIs.length > 0) {
         const activityNameLower = (activityName || '').toLowerCase().trim()
         kpiActual = allProjectKPIs.filter(kpi => {
-          const kpiActivityName = (kpi['Activity Name'] as string || '').toLowerCase().trim()
+          const kpiActivityName = ((kpi as any)['Activity Description'] as string || (kpi as any)['Activity Name'] as string || '').toLowerCase().trim()
           return kpiActivityName.includes(activityNameLower) || 
                  activityNameLower.includes(kpiActivityName)
         })
@@ -327,7 +327,7 @@ export async function calculatePlannedFromKPI(
       if (allProjectKPIs && allProjectKPIs.length > 0) {
         const activityNameLower = (activityName || '').toLowerCase().trim()
         kpiPlanned = allProjectKPIs.filter(kpi => {
-          const kpiActivityName = (kpi['Activity Name'] as string || '').toLowerCase().trim()
+          const kpiActivityName = ((kpi as any)['Activity Description'] as string || (kpi as any)['Activity Name'] as string || '').toLowerCase().trim()
           return kpiActivityName.includes(activityNameLower) || 
                  activityNameLower.includes(kpiActivityName)
         })

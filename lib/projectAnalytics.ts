@@ -548,7 +548,7 @@ export function calculateProjectAnalytics(
     
     let matchingActivity: BOQActivity | null = null
     for (const activity of projectActivities) {
-      const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityZone = (activity.zone_number || '0').toString().trim().toLowerCase()
       
       // Match activity name

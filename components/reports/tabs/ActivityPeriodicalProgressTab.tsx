@@ -114,8 +114,8 @@ export const ActivityPeriodicalProgressTab = memo(function ActivityPeriodicalPro
     if (!projectMatch) return false
     
     // 2. Activity Name Matching
-    const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
-    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+    const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any).activity || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
+    const activityName = (activity.activity_description || '').toLowerCase().trim()
     const activityMatch = kpiActivityName && activityName && (
       kpiActivityName === activityName || 
       kpiActivityName.includes(activityName) || 
@@ -126,7 +126,7 @@ export const ActivityPeriodicalProgressTab = memo(function ActivityPeriodicalPro
     
     // 3. Zone Matching (ULTRA STRICT - must match zone exactly)
     // ✅ NOT from Section - Section is separate from Zone
-    const kpiZoneRaw = (kpi.zone || kpi['Zone'] || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+    const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || kpi['Zone'] || rawKPI['Zone Number'] || rawKPI['Zone'] || '').toString().trim()
     const activityZoneNumber = (activity.zone_number || rawActivity['Zone Number'] || '0').toString().trim()
     
     // Use targetZone (from grouped data) or activity zone
@@ -660,7 +660,7 @@ export const ActivityPeriodicalProgressTab = memo(function ActivityPeriodicalPro
       group.activities.forEach((item) => {
         exportData.push({
           'Zone': '',
-          'Description': item.activity.activity_name || item.activity.activity || 'Unknown',
+          'Description': item.activity.activity_description || 'Unknown',
           'Unit': item.unit,
           'Total': item.total,
           'Last Period Actual': item.previousPeriodDone,
@@ -914,7 +914,7 @@ export const ActivityPeriodicalProgressTab = memo(function ActivityPeriodicalPro
       group.activities.forEach((item) => {
         exportData.push({
           'Zone': '',
-          'Description': item.activity.activity_name || item.activity.activity || 'Unknown',
+          'Description': item.activity.activity_description || 'Unknown',
           'Unit': item.unit,
           'Total': item.total,
           'Last Period Actual': item.previousPeriodDone,
@@ -1756,7 +1756,7 @@ export const ActivityPeriodicalProgressTab = memo(function ActivityPeriodicalPro
                           className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                         >
                           <td className="border border-gray-300 dark:border-gray-600 px-3 py-2 text-gray-900 dark:text-white">
-                            {item.activity.activity_name || item.activity.activity || 'Unknown Activity'}
+                            {item.activity.activity_description || 'Unknown Activity'}
                           </td>
                           <td className="border border-gray-300 dark:border-gray-600 px-3 py-2 text-center text-gray-700 dark:text-gray-300">
                             {item.unit}

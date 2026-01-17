@@ -800,7 +800,7 @@ export function KPITableWithCustomization({
             
           // Debug logging
           if (process.env.NODE_ENV === 'development') {
-            const activityZoneRaw = (matchedActivity.zone_ref || matchedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+            const activityZoneRaw = (matchedActivity.zone_number || rawActivity['Zone Number'] || '').toString().trim()
             const activityZone = normalizeZone(activityZoneRaw, matchedActivity.project_code || '')
             const activityZoneNum = extractZoneNumber(activityZone)
             

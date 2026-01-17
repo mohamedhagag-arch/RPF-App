@@ -103,8 +103,9 @@ export interface KPIPlanned {
   project_full_code: string
   project_code: string
   project_sub_code: string
-  activity_name: string
-  activity: string
+  activity_description: string // ✅ Merged from Activity Name and Activity
+  activity_name?: string // ✅ Deprecated - kept for backward compatibility
+  activity?: string // ✅ Deprecated - kept for backward compatibility
   quantity: number
   section: string
   drilled_meters: number
@@ -120,8 +121,9 @@ export interface KPIActual {
   project_full_code: string
   project_code: string
   project_sub_code: string
-  activity_name: string
-  activity: string
+  activity_description: string // ✅ Merged from Activity Name and Activity
+  activity_name?: string // ✅ Deprecated - kept for backward compatibility
+  activity?: string // ✅ Deprecated - kept for backward compatibility
   quantity: number
   section: string
   drilled_meters: number

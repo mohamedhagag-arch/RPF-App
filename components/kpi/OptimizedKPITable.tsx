@@ -269,7 +269,7 @@ export function OptimizedKPITable({
                     {/* Zone */}
                     <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-gray-100 w-20">
                       <span className="px-1.5 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400 rounded text-center truncate max-w-16">
-                        {kpi.zone || 'N/A'}
+                        {(kpi as any).zone_number || (kpi as any).zone || 'N/A'}
                       </span>
                     </td>
                     

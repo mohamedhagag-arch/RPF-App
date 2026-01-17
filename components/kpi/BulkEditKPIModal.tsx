@@ -120,9 +120,8 @@ export function BulkEditKPIModal({
     const uniqueUnits = Array.from(new Set(selectedKPIs.map(k => k.unit).filter(Boolean)))
     // ✅ FIX: Use Zone only, NOT Section
     const uniqueZones = Array.from(new Set(selectedKPIs.map(k => 
-      k.zone || 
-      (k as any).zone_ref || 
       (k as any).zone_number || 
+      (k as any).zone || 
       (k as any).raw?.['Zone'] || 
       (k as any).raw?.['Zone Number'] || 
       (k as any).raw?.['Zone Ref']

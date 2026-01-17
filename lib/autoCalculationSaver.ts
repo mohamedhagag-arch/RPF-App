@@ -28,7 +28,7 @@ export async function autoSaveActivityCalculations(activity: BOQActivity): Promi
   let updatedProjects = 0
 
   try {
-    console.log('🔄 Auto-saving calculations for activity:', activity.activity_name)
+    console.log('🔄 Auto-saving calculations for activity:', activity.activity_description || 'N/A')
 
     // Calculate rate and progress
     const rate = calculateActivityRate(activity)
@@ -59,7 +59,7 @@ export async function autoSaveActivityCalculations(activity: BOQActivity): Promi
     } else {
       updatedActivities++
       console.log('✅ Activity calculations saved:', {
-        activityName: activity.activity_name,
+        activityName: activity.activity_description || 'N/A',
         rate: rate.rate,
         progress: progress.metrics.progress,
         earnedValue: rate.earnedValue
@@ -206,7 +206,7 @@ export async function autoSaveOnKPIUpdate(kpiRecord: KPIRecord): Promise<AutoCal
   const errors: string[] = []
 
   try {
-    console.log('🔄 Auto-saving calculations on KPI update:', kpiRecord.activity_name)
+    console.log('🔄 Auto-saving calculations on KPI update:', kpiRecord.activity_description || kpiRecord.activity_name || 'N/A')
 
     // Get the activity for this KPI (using database column names with spaces)
     const { data: activity, error: activityError } = await supabase
@@ -244,7 +244,7 @@ export async function autoSaveOnKPIUpdate(kpiRecord: KPIRecord): Promise<AutoCal
  * Auto-save calculations when BOQ activity is updated
  */
 export async function autoSaveOnBOQUpdate(activity: BOQActivity): Promise<AutoCalculationResult> {
-  console.log('🔄 Auto-saving calculations on BOQ update:', activity.activity_name)
+  console.log('🔄 Auto-saving calculations on BOQ update:', activity.activity_description || 'N/A')
   return await autoSaveActivityCalculations(activity)
 }
 

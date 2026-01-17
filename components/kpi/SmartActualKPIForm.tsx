@@ -140,7 +140,7 @@ export function SmartActualKPIForm({
       setActualDate(formatDateForInput(actualDateValue))
       
       // Get Zone Number (merged from Zone and Zone Number)
-      const rawZone = (kpi['Zone Number'] || kpi.zone_number || kpi['Zone'] || kpi.zone || '0').toString().trim()
+      const rawZone = (kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || (kpi as any).zone || '0').toString().trim()
       const projectCode = (kpi['Project Code'] || kpi.project_code || '').toString().trim()
       let normalizedZone = rawZone
       

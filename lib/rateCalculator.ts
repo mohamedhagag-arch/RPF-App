@@ -59,7 +59,7 @@ export function calculateActivityRate(activity: BOQActivity): ActivityRate {
   
   return {
     activityId: activity.id,
-    activityName: activity.activity_name || '',
+    activityName: activity.activity_description || '',
     projectCode: activity.project_code || '',
     plannedUnits,
     plannedValue,
@@ -154,19 +154,22 @@ function checkSchedulePerformance(kpis: KPIRecord[], projectCode: string): boole
   
   if (projectKPIs.length === 0) return true // No data, assume on schedule
   
-  // Check if actual dates are within target dates
+  // Check if activity dates are overdue
   const overdueKPIs = projectKPIs.filter(kpi => {
-    const targetDate = new Date(kpi.target_date || '')
-    const actualDate = new Date(kpi.actual_date || '')
+    const activityDate = (kpi as any).activity_date ? new Date((kpi as any).activity_date) : null
     const today = new Date()
     
-    // If no actual date, check if target date has passed
-    if (!kpi.actual_date) {
-      return targetDate < today
+    // If no activity date, assume not overdue
+    if (!activityDate) {
+      return false
     }
     
-    // If actual date is after target date
-    return actualDate > targetDate
+    // If activity date has passed and it's an Actual KPI, check if it's overdue
+    if (kpi.input_type === 'Actual' && activityDate < today) {
+      return true
+    }
+    
+    return false
   })
   
   // Consider on schedule if less than 20% of KPIs are overdue
@@ -214,7 +217,7 @@ export function calculateActivityProgressFromKPI(
   kpis: KPIRecord[]
 ): number {
   const activityKPIs = kpis.filter(kpi => 
-    kpi.activity_name === activity.activity_name &&
+    (kpi.activity_description || kpi.activity_name) === activity.activity_description &&
     kpi.project_full_code === activity.project_code &&
     kpi.input_type === 'Actual'
   )

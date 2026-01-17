@@ -1934,8 +1934,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         try {
           const { syncBOQFromKPI } = await import('@/lib/boqKpiSync')
           const syncResult = await syncBOQFromKPI(
-            kpiToDelete.project_full_code,
-            kpiToDelete.activity_name
+            kpiToDelete.project_full_code || '',
+            kpiToDelete.activity_description || (kpiToDelete as any).activity_name || ''
           )
           console.log('✅ BOQ Sync Result:', syncResult)
           if (syncResult.success) {
@@ -2156,22 +2156,22 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         
         // ✅ AUTO-SYNC: Update BOQ for all affected activities
         const affectedActivities = Array.from(new Set(kpisToUpdate.map(k => ({
-          project_full_code: k.project_full_code,
-          activity_name: k.activity_name
+          project_full_code: k.project_full_code || '',
+          activity_description: k.activity_description || (k as any).activity_name || ''
         }))))
         
         console.log('🔄 Auto-syncing BOQ for affected activities...')
         const syncPromises = affectedActivities.map(async (activity) => {
           try {
             const syncResult = await syncBOQFromKPI(
-              activity.project_full_code,
-              activity.activity_name
+              activity.project_full_code || '',
+              activity.activity_description || ''
             )
             if (syncResult.success) {
-              console.log(`✅ BOQ synced for ${activity.activity_name}`)
+              console.log(`✅ BOQ synced for ${activity.activity_description}`)
             }
           } catch (syncError) {
-            console.error(`❌ BOQ sync failed for ${activity.activity_name}:`, syncError)
+            console.error(`❌ BOQ sync failed for ${activity.activity_description}:`, syncError)
           }
         })
         
@@ -2386,7 +2386,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           getKPIField(kpi, 'Zone Number') ||
           rawKPI['Zone Number'] ||
           (kpi as any).zone_number ||
-          kpi.zone || 
+          (kpi as any).zone_number || (kpi as any).zone || 
           getKPIField(kpi, 'Zone') ||
           rawKPI['Zone'] || 
           '0'
@@ -2805,7 +2805,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     const kpiProjectCode = ((kpi as any).project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
     const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
     const kpiActivityName = ((kpi as any).activity_description || rawKPI['Activity Description'] || (kpi as any).activity_name || rawKPI['Activity Name'] || (kpi as any).activity || rawKPI['Activity'] || '').toLowerCase().trim()
-    const kpiZoneRaw = (rawKPI['Zone Number'] || (kpi as any).zone_number || kpi.zone || rawKPI['Zone'] || '0').toString().trim()
+    const kpiZoneRaw = (rawKPI['Zone Number'] || (kpi as any).zone_number || (kpi as any).zone || rawKPI['Zone'] || '0').toString().trim()
     const kpiZone = normalizeZone(kpiZoneRaw, kpiProjectCode)
     const kpiZoneNum = extractZoneNumber(kpiZone)
     
@@ -3020,7 +3020,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     // ✅ IMPROVED: Extract KPI Zone Number from multiple sources (same logic as KPITableWithCustomization)
     const rawKPI = ((kpi as any).raw || {})
-    const kpiZoneRaw = (rawKPI['Zone Number'] || (kpi as any).zone_number || kpi.zone || rawKPI['Zone'] || '0').toString().trim()
+    const kpiZoneRaw = (rawKPI['Zone Number'] || (kpi as any).zone_number || (kpi as any).zone || rawKPI['Zone'] || '0').toString().trim()
     // Normalize KPI zone (remove project code prefix if exists)
     let kpiZone = kpiZoneRaw.toLowerCase().trim()
     if (kpiZone && (kpi as any).project_code) {

@@ -113,7 +113,7 @@ export function KPITable({ kpis, projects, activities, onEdit, onDelete }: KPITa
                 {/* KPI Name */}
                 <td className="px-6 py-4 text-sm">
                   <div className="font-medium text-gray-900 dark:text-gray-100">
-                    {kpi.kpi_name || kpi.activity_name}
+                    {kpi.activity_description || (kpi as any).kpi_name || (kpi as any).activity_name}
                   </div>
                   {kpi.section && (
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">

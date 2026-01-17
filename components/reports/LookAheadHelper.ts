@@ -58,8 +58,8 @@ export function kpiMatchesActivity(kpi: any, activity: BOQActivity): boolean {
   if (!projectMatch) return false
   
   // 2. Activity Name Matching
-  const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
-  const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+  const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any).activity || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
+  const activityName = (activity.activity_description || '').toLowerCase().trim()
   const activityMatch = kpiActivityName && activityName && (
     kpiActivityName === activityName || 
     kpiActivityName.includes(activityName) || 

@@ -87,7 +87,8 @@ export const KPIsTab = memo(function KPIsTab({ kpis, formatCurrency }: KPIsTabPr
               <tbody>
                 {displayedKPIs.map((kpi: ProcessedKPI) => {
                   // ✅ FIX: Get activity name and project code from multiple sources
-                  const activityName = kpi.activity_name || 
+                  const activityName = (kpi as any).activity_description || 
+                                      (kpi as any).activity_name || 
                                       (kpi as any).activity || 
                                       (kpi as any).kpi_name || 
                                       (kpi as any).raw?.['Activity Name'] ||

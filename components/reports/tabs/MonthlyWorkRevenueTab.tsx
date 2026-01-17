@@ -644,11 +644,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           
           let financialValue = 0
           
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
           
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKpi['Zone Number'] || rawKpi['Zone'] || '').toString().trim()
           let kpiZone = kpiZoneRaw.toLowerCase().trim()
           if (kpiZone && kpiProjectCode) {
             const projectCodeUpper = kpiProjectCode.toUpperCase()
@@ -836,11 +836,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           
           let financialValue = 0
           
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
           
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKpi['Zone Number'] || rawKpi['Zone'] || '').toString().trim()
           let kpiZone = kpiZoneRaw.toLowerCase().trim()
           if (kpiZone && kpiProjectCode) {
             const projectCodeUpper = kpiProjectCode.toUpperCase()
@@ -942,7 +942,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     // ✅ FIX: Get zone from KPI (check all possible fields)
     const rawKPI = (kpi as any).raw || {}
     const kpiZone = (
-      kpi.zone || 
+      (kpi as any).zone_number || (kpi as any).zone || 
       kpi.zone_number || 
       rawKPI['Zone'] ||
       rawKPI['Zone Number'] || 
@@ -1148,20 +1148,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         // ? Use EXACT SAME LOGIC as calculatePeriodEarnedValue
         const rawKPIDate = (kpi as any).raw || {}
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
-        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
-        const targetDateValue = rawKPIDate['Target Date'] || ''
+        // Use activity_date which is the unified date field
+        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || rawKPIDate['Actual Date'] || rawKPIDate['Target Date'] || ''
         
-        let kpiDateStr = ''
-        if (kpi.input_type === 'Actual' && actualDateValue) {
-          kpiDateStr = actualDateValue
-        } else if (kpi.input_type === 'Planned' && targetDateValue) {
-          kpiDateStr = targetDateValue
-        } else if (dayValue) {
-          kpiDateStr = activityDateValue || dayValue
-        } else {
-          kpiDateStr = activityDateValue || actualDateValue || targetDateValue
-        }
+        // Use activity_date as the unified date field
+        let kpiDateStr = activityDateValue || dayValue
         
         if (!kpiDateStr) return false
         
@@ -1197,11 +1188,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           
           let financialValue = 0
           
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
           
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKpi['Zone Number'] || rawKpi['Zone'] || '').toString().trim()
           let kpiZone = kpiZoneRaw.toLowerCase().trim()
           if (kpiZone && kpiProjectCode) {
             const projectCodeUpper = kpiProjectCode.toUpperCase()
@@ -1414,11 +1405,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           
           let financialValue = 0
           
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
           
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKpi['Zone Number'] || rawKpi['Zone'] || '').toString().trim()
           let kpiZone = kpiZoneRaw.toLowerCase().trim()
           if (kpiZone && kpiProjectCode) {
             const projectCodeUpper = kpiProjectCode.toUpperCase()
@@ -1586,11 +1577,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           
           // Check if activity uses virtual material
           const rawKpi = (kpi as any).raw || {}
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
           
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKpi['Zone Number'] || rawKpi['Zone'] || '').toString().trim()
           let kpiZone = kpiZoneRaw.toLowerCase().trim()
           if (kpiZone && kpiProjectCode) {
             const projectCodeUpper = kpiProjectCode.toUpperCase()
@@ -1617,11 +1608,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           const rawKpi = (kpi as any).raw || {}
           const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
           
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
           
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKpi['Zone Number'] || rawKpi['Zone'] || '').toString().trim()
           let kpiZone = kpiZoneRaw.toLowerCase().trim()
           if (kpiZone && kpiProjectCode) {
             const projectCodeUpper = kpiProjectCode.toUpperCase()
@@ -1767,11 +1758,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           
           // Check if activity uses virtual material
           const rawKpi = (kpi as any).raw || {}
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
           
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKpi['Zone Number'] || rawKpi['Zone'] || '').toString().trim()
           let kpiZone = kpiZoneRaw.toLowerCase().trim()
           if (kpiZone && kpiProjectCode) {
             const projectCodeUpper = kpiProjectCode.toUpperCase()
@@ -1798,11 +1789,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           const rawKpi = (kpi as any).raw || {}
           const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
           
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
           
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKpi['Zone Number'] || rawKpi['Zone'] || '').toString().trim()
           let kpiZone = kpiZoneRaw.toLowerCase().trim()
           if (kpiZone && kpiProjectCode) {
             const projectCodeUpper = kpiProjectCode.toUpperCase()
@@ -1999,10 +1990,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           let baseValue = 0
           
           // Find related activity (same logic as calculatePeriodPlannedValue)
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || kpi['Zone Number'] || rawKpi['Zone Number'] || rawKpi['Zone'] || '').toString().trim()
           let kpiZone = kpiZoneRaw.toLowerCase().trim()
           if (kpiZone && kpiProjectCode) {
             const projectCodeUpper = kpiProjectCode.toUpperCase()
