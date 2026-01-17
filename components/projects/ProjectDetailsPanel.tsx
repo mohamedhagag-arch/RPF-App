@@ -2726,8 +2726,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                                 <div>
                                   <p className="text-xs text-gray-500 dark:text-gray-400">Activity Date</p>
                                   <p className="font-medium text-gray-900 dark:text-white">
-                                    {kpi.target_date || kpi.start_date || kpi.actual_date
-                                      ? new Date(kpi.target_date || kpi.start_date || kpi.actual_date).toLocaleDateString('en-US', {
+                                    {kpi.activity_date || kpi.start_date
+                                      ? new Date(kpi.activity_date || kpi.start_date).toLocaleDateString('en-US', {
                                           year: 'numeric',
                                           month: 'short',
                                           day: 'numeric'
@@ -2744,8 +2744,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                                   <p className="text-xs text-gray-500 dark:text-gray-400">Day Order</p>
                                   <p className="font-medium text-gray-900 dark:text-white">
                                     {(() => {
-                                      // Calculate day order based on target_date
-                                      if (!kpi.target_date) return 'Not set'
+                                      // Calculate day order based on activity_date
+                                      if (!kpi.activity_date) return 'Not set'
                                       
                                       // Find all KPIs for the same activity and sort by date
                                       const activityKPIs = analytics.kpis.filter((otherKpi: any) => 
@@ -2755,10 +2755,10 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                                       
                                       if (activityKPIs.length <= 1) return 'Day 1'
                                       
-                                      // Sort by target_date
+                                      // Sort by activity_date
                                       const sortedKPIs = activityKPIs.sort((a: any, b: any) => {
-                                        const dateA = new Date(a.target_date || a.start_date || a.actual_date || '')
-                                        const dateB = new Date(b.target_date || b.start_date || b.actual_date || '')
+                                        const dateA = new Date(a.activity_date || a.start_date || '')
+                                        const dateB = new Date(b.activity_date || b.start_date || '')
                                         return dateA.getTime() - dateB.getTime()
                                       })
                                       
@@ -2860,8 +2860,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             <div>
                               <p className="text-xs text-gray-500 dark:text-gray-400">Date</p>
                               <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                {kpi.start_date || kpi.target_date || kpi.end_date
-                                  ? new Date(kpi.start_date || kpi.target_date || kpi.end_date).toLocaleDateString()
+                                {kpi.start_date || kpi.activity_date || kpi.end_date
+                                  ? new Date(kpi.start_date || kpi.activity_date || kpi.end_date).toLocaleDateString()
                                   : 'Not set'
                                 }
                               </p>

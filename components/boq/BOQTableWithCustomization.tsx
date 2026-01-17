@@ -135,12 +135,13 @@ export function BOQTableWithCustomization({
           
           if (activitiesData && activitiesData.length > 0) {
             activitiesData.forEach((item: any) => {
-              if (item.activity_name) {
-                const activityNameLower = item.activity_name.toLowerCase().trim()
+              const activityName = item.activity_description || item.activity_name || ''
+              if (activityName) {
+                const activityNameLower = activityName.toLowerCase().trim()
                 
                 // Store project_type (both exact and lowercase for flexible matching)
                 if (item.project_type) {
-                  activityTypesMap.set(item.activity_name, item.project_type)
+                  activityTypesMap.set(activityName, item.project_type)
                   activityTypesMap.set(activityNameLower, item.project_type)
                 }
                 
@@ -148,7 +149,7 @@ export function BOQTableWithCustomization({
                 if (item.estimated_rate != null && item.estimated_rate > 0) {
                   const rate = parseFloat(String(item.estimated_rate)) || 0
                   if (rate > 0) {
-                    ratesMap.set(item.activity_name, rate)
+                    ratesMap.set(activityName, rate)
                     ratesMap.set(activityNameLower, rate)
                   }
                 }
@@ -601,7 +602,7 @@ export function BOQTableWithCustomization({
         if (kpiInputType !== 'planned') return false
         
         // 2. Activity Name must match
-        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = (kpi.activity_description || kpi.activity_name || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
         if (!kpiActivityName || !activityName) return false
         if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
           return false
@@ -686,7 +687,7 @@ export function BOQTableWithCustomization({
               earliestDateSource: {
                 kpiDate: validDates[0].kpi.activity_date || rawKPI['Activity Date'] || rawKPI['Date'] || 'N/A',
                 kpiZone: kpiZone || 'N/A',
-                kpiActivityName: validDates[0].kpi.activity_name || rawKPI['Activity Name'] || 'N/A',
+                kpiActivityName: validDates[0].kpi.activity_description || validDates[0].kpi.activity_name || rawKPI['Activity Description'] || rawKPI['Activity Name'] || 'N/A',
                 kpiProjectCode: validDates[0].kpi.project_code || rawKPI['Project Code'] || 'N/A'
               },
               activityProjectCode,
@@ -896,7 +897,7 @@ export function BOQTableWithCustomization({
         if (kpiInputType !== 'actual') return false
         
         // 2. Activity Name must match
-        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = (kpi.activity_description || kpi.activity_name || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
         if (!kpiActivityName || !activityName) return false
         if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
           return false
@@ -978,7 +979,7 @@ export function BOQTableWithCustomization({
               earliestDateSource: {
                 kpiDate: validDates[0].kpi.activity_date || rawKPI['Activity Date'] || rawKPI['Date'] || 'N/A',
                 kpiZone: kpiZone || 'N/A',
-                kpiActivityName: validDates[0].kpi.activity_name || rawKPI['Activity Name'] || 'N/A',
+                kpiActivityName: validDates[0].kpi.activity_description || validDates[0].kpi.activity_name || rawKPI['Activity Description'] || rawKPI['Activity Name'] || 'N/A',
                 kpiProjectCode: validDates[0].kpi.project_code || rawKPI['Project Code'] || 'N/A'
               },
               activityProjectCode,
@@ -1122,7 +1123,7 @@ export function BOQTableWithCustomization({
         if (kpiInputType !== 'actual') return false
         
         // 2. Activity Name must match
-        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = (kpi.activity_description || kpi.activity_name || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
         if (!kpiActivityName || !activityName) return false
         if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
           return false
@@ -1454,8 +1455,10 @@ export function BOQTableWithCustomization({
       
       // ✅ NEW: If zone is empty, try to extract from KPI description/activity name
       if (!zoneRaw || zoneRaw.trim() === '') {
-        const kpiDescription = kpi.activity_name || 
+        const kpiDescription = kpi.activity_description || 
+                              kpi.activity_name || 
                               kpi.activity || 
+                              raw['Activity Description'] ||
                               raw['Activity Name'] ||
                               raw['Activity'] ||
                               ''
@@ -1544,7 +1547,7 @@ export function BOQTableWithCustomization({
           if (process.env.NODE_ENV === 'development') {
             console.log(`🚫 [Zone Match] KPI rejected: Activity has zone "${activityZone}" but KPI has no zone`, {
               activityName: activity.activity_description || 'N/A',
-              kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+              kpiActivityName: kpi.activity_description || kpi.activity_name || kpi['Activity Description'] || kpi['Activity Name'] || '',
               kpiProjectCode: kpi.project_code || kpi['Project Code']
             })
           }
@@ -1591,7 +1594,7 @@ export function BOQTableWithCustomization({
               activityZoneNum,
               kpiZone,
               kpiZoneNum,
-              kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+              kpiActivityName: kpi.activity_description || kpi.activity_name || kpi['Activity Description'] || kpi['Activity Name'] || '',
               kpiProjectCode: kpi.project_code || kpi['Project Code']
             })
           }
@@ -1624,7 +1627,7 @@ export function BOQTableWithCustomization({
                   activityZoneNum,
                   kpiZone: normalizedKpiZone,
                   kpiZoneNum,
-                  kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+                  kpiActivityName: kpi.activity_description || kpi.activity_name || kpi['Activity Description'] || kpi['Activity Name'] || '',
                   kpiProjectCode: kpi.project_code || kpi['Project Code']
                 })
               }
@@ -1682,19 +1685,15 @@ export function BOQTableWithCustomization({
       let kpiDateStr = ''
       
       if (inputType === 'planned') {
-        // ✅ Priority: Date column > target_date > activity_date > created_at
-        kpiDateStr = raw['Date'] ||
-                    kpi.date ||
-                    kpi.target_date || 
-                    kpi.activity_date || 
-                    raw['Target Date'] || 
+        // ✅ Priority: Activity Date column > Date > created_at
+        kpiDateStr = kpi.activity_date || 
                     raw['Activity Date'] ||
-                    kpi['Target Date'] || 
-                    kpi['Activity Date'] ||
+                    raw['Date'] ||
+                    kpi.date || 
                     kpi.created_at ||
                     ''
       } else {
-        kpiDateStr = kpi.actual_date || 
+        kpiDateStr = kpi.activity_date || 
                     kpi.activity_date || 
                     kpi['Actual Date'] || 
                     kpi['Activity Date'] || 

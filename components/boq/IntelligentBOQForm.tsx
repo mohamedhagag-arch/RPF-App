@@ -72,7 +72,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   // ✅ FIX: Use project_full_code first, then project_code as fallback
   const [projectCode, setProjectCode] = useState(activity?.project_full_code || activity?.project_code || '')
   const [project, setProject] = useState<Project | null>(null)
-  const [activityName, setActivityName] = useState(activity?.activity_name || '')
+  const [activityName, setActivityName] = useState(activity?.activity_description || '')
   const [activitySuggestions, setActivitySuggestions] = useState<Activity[]>([])
   const [projectTypeActivities, setProjectTypeActivities] = useState<ProjectTypeActivity[]>([])
   const [showActivityDropdown, setShowActivityDropdown] = useState(false)
@@ -536,11 +536,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           }
           
           // Map activities (deduplicate by name, keep first occurrence)
-          const key = (pta.activity_name || '').toLowerCase().trim()
+          const key = (pta.activity_description || pta.activity_name || '').toLowerCase().trim()
           if (key && !allActivitiesMap.has(key)) {
             allActivitiesMap.set(key, {
               id: pta.id,
-              name: pta.activity_name,
+              name: pta.activity_description || pta.activity_name || '',
               division: pta.project_type, // Store the scope this activity belongs to
               unit: pta.default_unit || '',
               category: pta.category || 'General',
@@ -954,7 +954,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         const kpiInputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
         if (kpiInputType !== 'planned') return false
         
-        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        const kpiActivityName = (kpi.activity_description || kpi.activity_name || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
         if (!kpiActivityName || !activityName) return false
         if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
           return false
@@ -1967,7 +1967,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 window.dispatchEvent(new CustomEvent('boq-activity-updated', { 
                   detail: { 
                     activityId: activity.id,
-                    activityName: activityData.activity_name,
+                    activityDescription: activityData.activity_description,
                     projectFullCode: activityData.project_full_code,
                     useVirtualMaterial: activityData.use_virtual_material
                   } 
@@ -3434,15 +3434,14 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                     if (index === 0) {
                       console.log('🔍 KPI Data Structure:', kpi)
                       console.log('🔍 Available date fields:', {
-                        target_date: kpi.target_date,
                         activity_date: kpi.activity_date,
-                        'Target Date': kpi['Target Date'],
+                        'Activity Date': kpi['Activity Date'],
                         date: kpi.date
                       })
                     }
                     
                     // Fix date parsing - try multiple possible date fields
-                    const dateValue = kpi.target_date || kpi.activity_date || kpi['Target Date'] || kpi.date
+                    const dateValue = kpi.activity_date || kpi['Activity Date'] || kpi.date || ''
                     const date = new Date(dateValue)
                     const isValidDate = !isNaN(date.getTime())
                     

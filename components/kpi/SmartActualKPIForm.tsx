@@ -125,7 +125,7 @@ export function SmartActualKPIForm({
       setUnit(kpi['Unit'] || kpi.unit || '')
       
       // Handle date formatting
-      const actualDateValue = kpi['Actual Date'] || kpi['Activity Date'] || kpi.activity_date || (kpi as any).actual_date || ''
+      const actualDateValue = kpi['Activity Date'] || kpi.activity_date || ''
       const formatDateForInput = (dateStr: string) => {
         if (!dateStr) return ''
         try {

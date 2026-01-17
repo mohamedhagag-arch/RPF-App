@@ -383,7 +383,8 @@ export function EnhancedSmartActualKPIForm({
         if (uniqueActivitiesData.length > 0) {
           console.log(`📋 Sample activities found (before filtering):`, uniqueActivitiesData.slice(0, 3).map((item: any) => ({
             id: item.id,
-            activity_name: item['Activity Name'],
+            activity_description: item['Activity Description'] || item['Activity Name'] || '',
+            activity_name: item['Activity Description'] || item['Activity Name'] || '', // Backward compatibility
             project_code: item['Project Code'],
             project_sub_code: item['Project Sub Code'],
             project_full_code: item['Project Full Code']
@@ -392,7 +393,7 @@ export function EnhancedSmartActualKPIForm({
         
         console.log(`✅ Smart KPI Form: Loaded ${projectActivities.length} activities for project ${projectCode}${projectSubCode ? `-${projectSubCode}` : ''}`)
         console.log(`📋 Activities:`, projectActivities.map(a => ({
-          name: a.activity_name,
+          name: a.activity_description || a.activity_name || '',
           project_code: a.project_code,
           project_full_code: a.project_full_code
         })))

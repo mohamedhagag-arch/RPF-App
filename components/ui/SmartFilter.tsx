@@ -359,7 +359,7 @@ export function SmartFilter({
     // From KPIs: check zone, zone_ref, zone_number (NOT from Section - Section is separate)
     ...kpis.map(k => {
       // ✅ NOT from Section - Section is separate from Zone
-      const kpiZone = (k.zone || (k as any).zone_ref || (k as any).zone_number || '').toString().trim()
+      const kpiZone = ((k as any).zone_number || k.zone || '').toString().trim()
       return kpiZone
     }).filter(Boolean) as string[],
     // From activities: check zone (which should be zone_ref or zone_number from KPITracking)
@@ -370,7 +370,7 @@ export function SmartFilter({
       )
     }).map(a => {
       // Activities in KPI page pass zone as zone_ref || zone_number
-      const activityZone = (a.zone || (a as any).zone_ref || (a as any).zone_number || '').toString().trim()
+      const activityZone = ((a as any).zone_number || a.zone || '').toString().trim()
       return activityZone
     }).filter(Boolean) as string[]
   ] : []

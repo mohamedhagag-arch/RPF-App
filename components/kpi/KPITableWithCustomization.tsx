@@ -1359,8 +1359,7 @@ export function KPITableWithCustomization({
           if (activityName && allActivities && allActivities.length > 0) {
             const relatedActivity = allActivities.find((a: any) => {
               const nameMatch = (
-                a.activity_name?.toLowerCase().trim() === activityName.toLowerCase().trim() ||
-                a.activity?.toLowerCase().trim() === activityName.toLowerCase().trim()
+                (a.activity_description || a.activity_name || a.activity || '').toLowerCase().trim() === activityName.toLowerCase().trim()
               )
               const projectMatch = (
                 a.project_code === projectCode ||
@@ -1634,7 +1633,7 @@ export function KPITableWithCustomization({
         let dailyCumulativeNum = 0
         if (currentDate) {
           relatedKPIs.forEach((otherKPI: any) => {
-            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDateStr = otherKPI.activity_date || otherKPI.day || ''
             const otherDate = parseDateForCumulative(otherDateStr)
             if (otherDate && 
                 otherDate.getDate() === currentDate.getDate() &&
@@ -1653,7 +1652,7 @@ export function KPITableWithCustomization({
           const currentYear = currentDate.getFullYear()
           
           relatedKPIs.forEach((otherKPI: any) => {
-            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDateStr = otherKPI.activity_date || otherKPI.day || ''
             const otherDate = parseDateForCumulative(otherDateStr)
             if (otherDate) {
               const otherWeek = Math.ceil((otherDate.getDate() + new Date(otherDate.getFullYear(), 0, 1).getDay()) / 7)
@@ -1674,7 +1673,7 @@ export function KPITableWithCustomization({
           const currentYear = currentDate.getFullYear()
           
           relatedKPIs.forEach((otherKPI: any) => {
-            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDateStr = otherKPI.activity_date || otherKPI.day || ''
             const otherDate = parseDateForCumulative(otherDateStr)
             if (otherDate && 
                 otherDate.getMonth() === currentMonth &&
@@ -1812,7 +1811,7 @@ export function KPITableWithCustomization({
         let dailyCumulativeValueNum = 0
         if (currentDateValue) {
           relatedKPIsValue.forEach((otherKPI: any) => {
-            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDateStr = otherKPI.activity_date || otherKPI.day || ''
             const otherDate = parseDateForCumulativeValue(otherDateStr)
             if (otherDate && 
                 otherDate.getDate() === currentDateValue.getDate() &&
@@ -1830,7 +1829,7 @@ export function KPITableWithCustomization({
           const currentYear = currentDateValue.getFullYear()
           
           relatedKPIsValue.forEach((otherKPI: any) => {
-            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDateStr = otherKPI.activity_date || otherKPI.day || ''
             const otherDate = parseDateForCumulativeValue(otherDateStr)
             if (otherDate) {
               const otherWeek = Math.ceil((otherDate.getDate() + new Date(otherDate.getFullYear(), 0, 1).getDay()) / 7)
@@ -1850,7 +1849,7 @@ export function KPITableWithCustomization({
           const currentYear = currentDateValue.getFullYear()
           
           relatedKPIsValue.forEach((otherKPI: any) => {
-            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDateStr = otherKPI.activity_date || otherKPI.day || ''
             const otherDate = parseDateForCumulativeValue(otherDateStr)
             if (otherDate && 
                 otherDate.getMonth() === currentMonth &&

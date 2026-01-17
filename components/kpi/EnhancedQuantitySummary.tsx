@@ -338,9 +338,7 @@ export function EnhancedQuantitySummary({
     } else {
       kpiDateStr = kpi.activity_date || 
                   kpi['Activity Date'] ||
-                  (kpi as any).actual_date || 
-                  kpi['Actual Date'] || 
-                  rawKPI['Actual Date'] || 
+                  rawKPI['Activity Date'] || 
                   rawKPI['Activity Date'] ||
                   kpi.created_at ||
                   ''
@@ -719,7 +717,7 @@ export function EnhancedQuantitySummary({
             quantity: parseQuantity(kpi),
             projectFullCode: kpi['Project Full Code'],
             zone: kpi['Zone'],
-            actualDate: kpi['Activity Date'] || kpi.activity_date || kpi['Actual Date'] || (kpi as any).actual_date || 'N/A'
+            actualDate: kpi['Activity Date'] || kpi.activity_date || 'N/A'
           })))
         } else if (allActualKPIs.length > 0) {
           console.log(`⚠️ [EnhancedQuantitySummary] No KPIs matched!`, {
@@ -810,7 +808,7 @@ export function EnhancedQuantitySummary({
           const actualKPIsUntilYesterday = actualKPIs.filter((kpi: any) => {
             const isUntilYesterday = isKPIUntilYesterday(kpi, 'actual')
             if (showDebug && !isUntilYesterday) {
-              const kpiDate = kpi['Activity Date'] || kpi.activity_date || kpi['Actual Date'] || (kpi as any).actual_date || 'N/A'
+              const kpiDate = kpi['Activity Date'] || kpi.activity_date || 'N/A'
               console.log(`⏰ [EnhancedQuantitySummary] KPI ${kpi.id} excluded (future date): ${kpiDate}`)
             }
             return isUntilYesterday

@@ -123,7 +123,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         const scopeMap = new Map<string, string>()
         if (data) {
           data.forEach((item: any) => {
-            const activityName = item.activity_name?.trim().toLowerCase()
+            const activityName = (item.activity_description || item.activity_name || '').trim().toLowerCase()
             const projectType = item.project_type?.trim()
             if (activityName && projectType) {
               // Store the first scope found for each activity
@@ -590,8 +590,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
 
       switch (columnId) {
         case 'activity_details':
-          aValue = (a.activity_name || '').toLowerCase()
-          bValue = (b.activity_name || '').toLowerCase()
+          aValue = (a.activity_description || (a as any).activity_name || '').toLowerCase()
+          bValue = (b.activity_description || (b as any).activity_name || '').toLowerCase()
           break
         case 'date':
         case 'key_dates':
@@ -838,7 +838,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // ✅ DEBUG: Log sample KPIs after mapping
       if (mappedKPIsRaw.length > 0) {
         console.log('📋 Sample KPIs after mapping (first 3):', mappedKPIsRaw.slice(0, 3).map((k: any) => ({
-          activityName: k.activity_name,
+          activityName: k.activity_description || k.activity_name || '',
           projectFullCode: k.project_full_code,
           projectCode: k.project_code,
           projectSubCode: k.project_sub_code
@@ -1015,7 +1015,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           const kpiRecordsForProgress: KPIRecord[] = sortedKPIs.map((processed: ProcessedKPI) => ({
             id: processed.id,
             project_full_code: processed.project_full_code,
-            activity_description: (processed as any).activity_description || (processed as any).activity_name || '',
+            activity_description: processed.activity_description || (processed as any).activity_name || '',
             quantity: processed.quantity,
             input_type: processed.input_type,
             section: processed.section,
@@ -1025,7 +1025,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             value: processed.value,
             planned_value: processed.planned_value,
             actual_value: processed.actual_value,
-            activity_date: processed.activity_date || (processed as any).target_date || (processed as any).actual_date,
+            activity_date: processed.activity_date || '',
             created_at: processed.created_at,
             updated_at: processed.updated_at,
             status: processed.status === 'excellent' || processed.status === 'good' 
@@ -1357,7 +1357,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (!calculatedValue || calculatedValue === 0) {
         // Find related activity to get rate and activity_timing
         const relatedActivity = activities.find((a: any) => 
-          a.activity_name === activityName && 
+          (a.activity_description || a.activity_name || '') === activityName && 
           (a.project_code === projectCode || a.project_full_code === projectCode)
         )
         
@@ -1567,7 +1567,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (insertedData?.id) {
         activityTracker.create(insertedData.id, {
           project_code: projectCode,
-          activity_name: activityName,
+          activity_description: activityName,
+          activity_name: activityName, // Backward compatibility
           input_type: inputType,
           quantity: quantity,
           value: calculatedValue,
@@ -1599,7 +1600,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       console.log('Form Data Keys:', Object.keys(kpiData))
       console.log('Form Data Values:', Object.values(kpiData))
       console.log('🔍 project_full_code:', kpiData.project_full_code)
-      console.log('🔍 activity_name:', kpiData.activity_name)
+      console.log('🔍 activity_description:', kpiData.activity_description || kpiData.activity_name || '')
       console.log('🔍 quantity:', kpiData.quantity)
       console.log('========================================')
       
@@ -2072,7 +2073,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             
             // Find related activity to get rate
             const relatedActivity = activities.find((a: any) => 
-              a.activity_name === kpi.activity_name && 
+              (a.activity_description || a.activity_name || '') === (kpi.activity_description || (kpi as any).activity_name || '') && 
               (a.project_code === kpi.project_full_code || a.project_full_code === kpi.project_full_code)
             )
             
@@ -2261,13 +2262,13 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           try {
             const syncResult = await syncBOQFromKPI(
               activity.project_full_code,
-              activity.activity_name
+              activity.activity_description || activity.activity_name || ''
             )
             if (syncResult.success) {
-              console.log(`✅ BOQ synced for ${activity.activity_name}`)
+              console.log(`✅ BOQ synced for ${activity.activity_description || activity.activity_name || ''}`)
             }
           } catch (syncError) {
-            console.error(`❌ BOQ sync failed for ${activity.activity_name}:`, syncError)
+            console.error(`❌ BOQ sync failed for ${activity.activity_description || activity.activity_name || ''}:`, syncError)
           }
         })
         
@@ -2469,8 +2470,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           if (activityName && projectCode) {
             const relatedActivity = activities.find((a: any) => {
               const nameMatch = (
-                a.activity_name?.toLowerCase().trim() === activityName.toLowerCase().trim() ||
-                a.activity?.toLowerCase().trim() === activityName.toLowerCase().trim()
+                (a.activity_description || a.activity_name || a.activity || '').toLowerCase().trim() === activityName.toLowerCase().trim()
               )
               const projectMatch = (
                 a.project_code === projectCode ||
@@ -2616,8 +2616,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           if (activityName && activities && activities.length > 0) {
             const relatedActivity = activities.find((a: any) => {
               const nameMatch = (
-                a.activity_name?.toLowerCase().trim() === activityName.toLowerCase().trim() ||
-                a.activity?.toLowerCase().trim() === activityName.toLowerCase().trim()
+                (a.activity_description || a.activity_name || a.activity || '').toLowerCase().trim() === activityName.toLowerCase().trim()
               )
               const projectMatch = (
                 a.project_code === projectCode ||
@@ -2878,7 +2877,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // Strategy 2: If still 0, try to find ANY activity with same name and project (ignore zone) - SAME AS TABLE
       if (rateForValue === 0 && activities.length > 0 && kpiActivityName) {
         const anyMatchingActivity = activities.find((activity: any) => {
-          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+          const activityName = (activity.activity_description || activity.activity_name || activity.activity || '').toLowerCase().trim()
           if (!activityName || activityName !== kpiActivityName) return false
           
           const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
@@ -3909,8 +3908,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           if (!activityScope && activities.length > 0 && activityName) {
             const relatedActivity = activities.find((a: any) => {
               const activityNameMatch = (
-                a.activity_name?.toLowerCase().trim() === activityName ||
-                a.activity?.toLowerCase().trim() === activityName
+                (a.activity_description || a.activity_name || a.activity || '').toLowerCase().trim() === activityName
               )
               return activityNameMatch
             })

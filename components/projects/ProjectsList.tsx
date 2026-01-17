@@ -1133,8 +1133,7 @@ export function ProjectsList({
                 id: kpi.id || '',
                 input_type: kpi.input_type || (kpi as any).raw?.['Input Type'] || 'Planned',
                 quantity: kpi.quantity || kpi.Quantity || 0,
-                target_date: kpi.target_date || kpi.activity_date || (kpi as any).raw?.['Target Date'] || '',
-                actual_date: kpi.actual_date || (kpi as any).raw?.['Actual Date']
+                activity_date: kpi.activity_date || (kpi as any).raw?.['Activity Date'] || kpi.target_date || kpi.actual_date || ''
               }))
             }
             
@@ -1634,9 +1633,10 @@ export function ProjectsList({
         alwaysExpanded={true}
         projects={allProjectsForFilter} // ✅ ENHANCED: Use all projects for filter, not just loaded ones
         activities={useMemo(() => allActivities.map(a => ({
-          activity_name: a.activity_name,
+          activity_description: a.activity_description || a.activity_name || '',
+          activity_name: a.activity_description || a.activity_name || '', // Backward compatibility
           project_code: a.project_code,
-          zone: a.zone_ref || a.zone_number || '',
+          zone: a.zone_number || '',
           unit: a.unit || '',
           activity_division: a.activity_division || ''
         })), [allActivities])}

@@ -455,7 +455,7 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
   const projectSubCode = kpi.project_sub_code || raw['Project Sub Code'] || ''
   const activityName = kpi.activity_description || (kpi as any).activity_name || 'N/A'
   const inputType = kpi.input_type || raw['Input Type'] || 'N/A'
-  const date = kpi.activity_date || (kpi as any).actual_date || (kpi as any).target_date || raw['Activity Date'] || raw['Actual Date'] || raw['Target Date'] || 'N/A'
+  const date = kpi.activity_date || raw['Activity Date'] || 'N/A'
   const quantity = kpi.quantity || raw['Quantity'] || 'N/A'
   const unit = kpi.unit || raw['Unit'] || ''
   const value = kpi.value || raw['Value'] || null

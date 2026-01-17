@@ -761,8 +761,6 @@ export function ProjectsTableWithCustomization({
               
               let dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
                            kpi.activity_date || kpi['Activity Date'] ||
-                           rawKpi['Target Date'] || rawKpi.target_date ||
-                           kpi.target_date || kpi['Target Date'] ||
                            rawKpi['Day'] || rawKpi.day ||
                            kpi.day || kpi['Day'] || ''
               
@@ -810,11 +808,11 @@ export function ProjectsTableWithCustomization({
           
           // ✅ EXPANDED PRIORITY 3: Target Date (للـ Planned KPIs) - جميع الاختلافات
           if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
-            dateStr = rawKpi['Target Date'] ||
-                     rawKpi.target_date ||
-                     rawKpi['target_date'] ||
-                     rawKpi['TargetDate'] ||
-                     rawKpi.TargetDate ||
+            dateStr = rawKpi['Activity Date'] ||
+                     rawKpi.activity_date ||
+                     rawKpi['activity_date'] ||
+                     rawKpi['ActivityDate'] ||
+                     rawKpi.ActivityDate ||
                      kpi.target_date ||
                      kpi['Target Date'] ||
                      kpi['target_date'] ||
@@ -2701,7 +2699,7 @@ export function ProjectsTableWithCustomization({
           
           // Zone matching (flexible)
           const kpiZone = (kpi.zone || rawKPI['Zone'] || '').toString().trim()
-          const activityZone = (activity.zone_ref || activity.zone_number || activity.zone || '').toString().trim()
+          const activityZone = (activity.zone_number || activity.zone || '').toString().trim()
           if (activityZone && kpiZone && activityZone !== kpiZone) return false
           
           return true

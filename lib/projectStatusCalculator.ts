@@ -27,9 +27,9 @@ export interface ProjectStatusData {
     id: string
     input_type: 'Planned' | 'Actual'
     quantity: number
-    target_date: string
-    actual_date?: string
-    activity_date?: string // ✅ NEW: Activity date from KPI
+    activity_date: string // ✅ Unified date field (replaces target_date and actual_date)
+    target_date?: string // ✅ Deprecated - kept for backward compatibility
+    actual_date?: string // ✅ Deprecated - kept for backward compatibility
     activity_name?: string // ✅ NEW: Activity name from KPI (for matching)
   }>
 }

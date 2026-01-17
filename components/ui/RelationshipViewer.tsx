@@ -50,7 +50,7 @@ interface KPIData {
   status: string
   planned_value: number
   actual_value: number
-  target_date: string
+  activity_date: string
 }
 
 interface RelationshipViewerProps {
@@ -399,7 +399,7 @@ export function RelationshipViewer({
                     </div>
                     <div>
                       <p className="text-gray-600">Target Date</p>
-                      <p className="font-semibold">{new Date(kpi.target_date).toLocaleDateString()}</p>
+                      <p className="font-semibold">{kpi.activity_date ? new Date(kpi.activity_date).toLocaleDateString() : 'Not set'}</p>
                     </div>
                   </div>
                 </div>

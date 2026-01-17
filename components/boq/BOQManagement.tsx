@@ -862,7 +862,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       switch (columnId) {
         case 'activity_details':
           aValue = (a.activity_description || '').toLowerCase()
-          bValue = (b.activity_description || b.activity_name || b.activity || '').toLowerCase()
+          bValue = (b.activity_description || '').toLowerCase()
           break
         case 'scope':
           aValue = ((a as any).raw?.['Activity Scope'] || a.activity_scope || '').toLowerCase()
@@ -1241,7 +1241,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       if (filteredActivitiesData.length === 0 && mappedActivitiesRaw.length > 0) {
         console.warn('⚠️ No activities matched filters!', {
           sampleActivity: {
-            activityName: mappedActivitiesRaw[0]?.activity || mappedActivitiesRaw[0]?.activity_name,
+            activityDescription: mappedActivitiesRaw[0]?.activity_description || '',
             projectFullCode: mappedActivitiesRaw[0]?.project_full_code,
             projectCode: mappedActivitiesRaw[0]?.project_code,
             projectSubCode: mappedActivitiesRaw[0]?.project_sub_code
@@ -2948,8 +2948,10 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       
       // ✅ NEW: If zone is empty, try to extract from KPI description/activity name
       if (!zoneRaw || zoneRaw.trim() === '') {
-        const kpiDescription = kpi.activity_name || 
+        const kpiDescription = kpi.activity_description || 
+                              kpi.activity_name || 
                               kpi.activity || 
+                              rawKPI['Activity Description'] ||
                               rawKPI['Activity Name'] ||
                               rawKPI['Activity'] ||
                               ''
@@ -3061,7 +3063,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       if (!projectMatch) return false
       
       // 2. Activity Name Matching (required)
-      const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
+      const kpiActivityName = (kpi.activity_description || kpi.activity_name || kpi['Activity Description'] || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
       const activityName = (activity.activity_description || '').toLowerCase().trim()
       const activityMatch = kpiActivityName && activityName && (
         kpiActivityName === activityName || 

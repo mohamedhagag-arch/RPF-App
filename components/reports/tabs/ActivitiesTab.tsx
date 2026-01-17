@@ -525,10 +525,8 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
             kpiDateStr = rawKPI['Activity Date'].toString().trim()
           } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Date'].toString().trim()
-          } else if ((kpi as any).target_date && (kpi as any).target_date.toString().trim() !== '' && (kpi as any).target_date !== 'N/A') {
-            kpiDateStr = (kpi as any).target_date.toString().trim()
-          } else if (rawKPI['Target Date'] && rawKPI['Target Date'].toString().trim() !== '' && rawKPI['Target Date'] !== 'N/A') {
-            kpiDateStr = rawKPI['Target Date'].toString().trim()
+          } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Activity Date'].toString().trim()
           } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Activity Date'].toString().trim()
           }
@@ -753,10 +751,8 @@ export const ActivitiesTab = memo(function ActivitiesTab({ activities, kpis = []
           // Use activity_date which is the unified date field
           if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
             kpiDateStr = kpi.activity_date.toString().trim()
-          } else if ((kpi as any).actual_date && (kpi as any).actual_date.toString().trim() !== '' && (kpi as any).actual_date !== 'N/A') {
-            kpiDateStr = (kpi as any).actual_date.toString().trim()
-          } else if ((kpi as any).target_date && (kpi as any).target_date.toString().trim() !== '' && (kpi as any).target_date !== 'N/A') {
-            kpiDateStr = (kpi as any).target_date.toString().trim()
+          } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Activity Date'].toString().trim()
           } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
             kpiDateStr = rawKPI['Date'].toString().trim()
           } else if (rawKPI['Actual Date'] && rawKPI['Actual Date'].toString().trim() !== '' && rawKPI['Actual Date'] !== 'N/A') {

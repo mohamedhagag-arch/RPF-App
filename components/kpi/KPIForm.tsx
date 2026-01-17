@@ -24,7 +24,7 @@ export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFo
     kpi_name: '',
     planned_value: 0,
     actual_value: 0,
-    target_date: '',
+    activity_date: '',
     completion_date: '',
     status: 'on_track' as 'on_track' | 'delayed' | 'completed' | 'at_risk',
     zone: '',
@@ -41,7 +41,7 @@ export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFo
         kpi_name: kpi.kpi_name || '',
         planned_value: kpi.planned_value || 0,
         actual_value: kpi.actual_value || 0,
-        target_date: kpi.activity_date || (kpi as any).target_date || '',
+        activity_date: kpi.activity_date || '',
         completion_date: kpi.completion_date || '',
         status: kpi.status || 'on_track',
         zone: (kpi as any).zone_number || (kpi as any).zone || '',
@@ -68,8 +68,8 @@ export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFo
       return
     }
 
-    if (!formData.target_date) {
-      setError('Please specify the target date')
+    if (!formData.activity_date) {
+      setError('Please specify the activity date')
       return
     }
 
@@ -199,12 +199,12 @@ export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFo
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Target Date *
+                  Activity Date *
                 </label>
                 <Input
                   type="date"
-                  value={formData.target_date}
-                  onChange={(e) => handleChange('target_date', e.target.value)}
+                  value={formData.activity_date}
+                  onChange={(e) => handleChange('activity_date', e.target.value)}
                   required
                 />
               </div>

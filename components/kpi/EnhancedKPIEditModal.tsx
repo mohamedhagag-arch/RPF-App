@@ -69,7 +69,7 @@ export function EnhancedKPIEditModal({
         }
       }
       
-      setTargetDate(formatDateForInput(kpi.activity_date || (kpi as any).target_date || ''))
+      setTargetDate(formatDateForInput(kpi.activity_date || ''))
       setActualDate(formatDateForInput(kpi.activity_date || ''))
       setSection(kpi.section || '')
       setDay((kpi as any).day || '')
@@ -115,8 +115,6 @@ export function EnhancedKPIEditModal({
         activity_name: activityName.trim(),
         quantity: parseFloat(quantity) || 0,
         unit: unit.trim(),
-        target_date: targetDate,
-        actual_date: actualDate,
         activity_date: actualDate || targetDate,
         section: section.trim(),
         day: day.trim(),

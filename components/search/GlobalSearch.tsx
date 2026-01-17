@@ -152,7 +152,7 @@ export function GlobalSearch({ onResultClick, onClose, isOpen = false }: GlobalS
               id: kpi.id,
               type: 'kpi',
               title: kpi.kpi_name,
-              subtitle: `Target: ${kpi.target_date}`,
+              subtitle: `Date: ${kpi.activity_date || kpi['Activity Date'] || 'Not set'}`,
               description: `Planned: ${kpi.planned_value} • Actual: ${kpi.actual_value}`,
               status: kpi.status,
               date: kpi.created_at,
