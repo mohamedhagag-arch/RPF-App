@@ -74,7 +74,7 @@ export function IntelligentKPIForm({
       // Handle both old and new column names
       const editingProjectCode = kpi['Project Full Code'] || kpi.project_full_code || ''
       setProjectCode(editingProjectCode)
-      setActivityName(kpi['Activity Name'] || kpi.activity_name || '')
+      setActivityName(kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || kpi.activity || '')
       setInputType(kpi['Input Type'] || kpi.input_type || 'Planned')
       setQuantity(kpi['Quantity']?.toString() || kpi.quantity?.toString() || '')
       setUnit(kpi['Unit'] || kpi.unit || '')
@@ -182,10 +182,10 @@ export function IntelligentKPIForm({
         dateToUse,
         formattedDate: formatDateForInput(dateToUse)
       })
-      // ✅ CRITICAL FIX: Extract zone value correctly and format it like Smart KPI Form
-      // Zone may be stored as "P8888-01-1", "01-1", or just "1"
-      // We need to extract the actual zone value (last part) then format as projectFullCode-zone
-      const rawZone = (kpi['Zone'] || kpi.zone || '').toString().trim()
+      // ✅ CRITICAL FIX: Extract Zone Number (merged from Zone and Zone Number)
+      // Zone Number may be stored as "P8888-01-1", "01-1", or just "1"
+      // We need to extract the actual zone number value
+      const rawZone = (kpi['Zone Number'] || kpi.zone_number || kpi['Zone'] || kpi.zone || '0').toString().trim()
       const projectFullCode = (kpi['Project Full Code'] || kpi.project_full_code || '').toString().trim()
       const projectCode = (kpi['Project Code'] || kpi.project_code || '').toString().trim()
       
@@ -261,13 +261,13 @@ export function IntelligentKPIForm({
       
       console.log('✅ KPI data loaded:', {
         projectCode: kpi['Project Full Code'] || kpi.project_full_code,
-        activityName: kpi['Activity Name'] || kpi.activity_name,
+        activityName: kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || kpi.activity || '',
         inputType: kpi['Input Type'] || kpi.input_type,
         quantity: kpi['Quantity'] || kpi.quantity,
         unit: kpi['Unit'] || kpi.unit,
         activityDate: formatDateForInput(dateToUse),
-        zone: kpi['Zone'] || kpi.zone,
-        zoneNumber: kpi['Zone Number'] || kpi.zone_number,
+        zone: kpi['Zone Number'] || kpi.zone_number || kpi['Zone'] || kpi.zone || '0',
+        zoneNumber: kpi['Zone Number'] || kpi.zone_number || '0',
         day: kpi['Day'] || kpi.day,
         drilledMeters: kpi['Drilled Meters'] || kpi.drilled_meters
       })
@@ -289,7 +289,7 @@ export function IntelligentKPIForm({
         // Smart auto-fill: Find and set the selected activity
         const loadedActivityName = kpi['Activity Name'] || kpi.activity_name
         if (loadedActivityName && projectActivities.length > 0) {
-          const foundActivity = projectActivities.find(a => a.activity_name === loadedActivityName)
+          const foundActivity = projectActivities.find(a => (a.activity_description || a.activity_name || a.activity || '') === loadedActivityName)
           if (foundActivity) {
             setSelectedActivity(foundActivity)
             console.log('🧠 Smart Form: Activity found for auto-fill:', foundActivity.activity_name)
@@ -526,7 +526,7 @@ export function IntelligentKPIForm({
   // Smart auto-fill when activity is selected
   useEffect(() => {
     if (activityName && availableActivities.length > 0) {
-      const foundActivity = availableActivities.find(a => a.activity_name === activityName)
+      const foundActivity = availableActivities.find(a => (a.activity_description || a.activity_name || a.activity || '') === activityName)
       
       if (foundActivity) {
         setSelectedActivity(foundActivity)
@@ -691,7 +691,8 @@ export function IntelligentKPIForm({
         'Project Full Code': finalProjectCode, // ✅ Full code (e.g., "P8888-01")
         'Project Code': projectCodeOnly || finalProjectCode, // ✅ Base code (e.g., "P8888")
         'Project Sub Code': project?.project_sub_code || '',
-        'Activity Name': activityName,
+        'Activity Description': activityName, // ✅ Use merged column
+        'Activity Name': activityName, // ✅ Backward compatibility
         'Activity Division': activityDivision, // ✅ Activity Division field (same as Planned)
         'Activity Timing': activityTiming, // ✅ Activity Timing field (same as Planned)
         'Quantity': Math.round(quantityValue * 100) / 100,
@@ -701,21 +702,8 @@ export function IntelligentKPIForm({
         'Activity Date': activityDate || '', // ✅ Unified Activity Date (use with Input Type filter)
         'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Section': '', // ✅ Section field (empty for manual entry, same as Planned auto-generated)
-        // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
-        'Zone': (() => {
-          const projectFullCodeValue = finalProjectCode
-          const activityZone = zone || selectedActivity?.zone_number || '0'
-          if (activityZone && projectFullCodeValue) {
-            // If zone already contains project code, use it as is
-            if (activityZone.includes(projectFullCodeValue)) {
-              return activityZone
-            }
-            // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
-            return `${projectFullCodeValue} - ${activityZone}`
-          }
-          return activityZone || ''
-        })(),
-        'Zone Number': zoneNumber || selectedActivity?.zone_number || '', // ✅ Zone Number field (same as Planned)
+        // ✅ Zone Number is the unified zone field (merged from Zone and Zone Number)
+        'Zone Number': zoneNumber || zone || selectedActivity?.zone_number || '0',
         'Drilled Meters': parseFloat(drilledMeters) || 0
       }
       
@@ -753,7 +741,7 @@ export function IntelligentKPIForm({
     try {
       // Validation
       if (!projectCode) throw new Error('Please select a project')
-      if (!activityName) throw new Error('Please enter activity name')
+      if (!activityName) throw new Error('Please enter activity description')
       if (!quantity || quantity.trim() === '') throw new Error('Please enter a quantity')
       
       // Ensure quantity is a valid number (allow 0)
@@ -849,21 +837,8 @@ export function IntelligentKPIForm({
         'Activity Date': activityDate || '', // ✅ Unified Activity Date (use with Input Type filter)
         'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Section': '', // ✅ Section field (empty for manual entry, same as Planned auto-generated)
-        // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
-        'Zone': (() => {
-          const projectFullCodeValue = finalProjectCode
-          const activityZone = zone || selectedActivity?.zone_number || '0'
-          if (activityZone && projectFullCodeValue) {
-            // If zone already contains project code, use it as is
-            if (activityZone.includes(projectFullCodeValue)) {
-              return activityZone
-            }
-            // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
-            return `${projectFullCodeValue} - ${activityZone}`
-          }
-          return activityZone || ''
-        })(),
-        'Zone Number': zoneNumber || selectedActivity?.zone_number || '', // ✅ Zone Number field (same as Planned)
+        // ✅ Zone Number is the unified zone field (merged from Zone and Zone Number)
+        'Zone Number': zoneNumber || zone || selectedActivity?.zone_number || '0',
         'Drilled Meters': parseFloat(drilledMeters) || 0
       }
       
@@ -875,8 +850,8 @@ export function IntelligentKPIForm({
         console.error('Project.project_code:', project?.project_code)
         throw new Error('Project Full Code is required')
       }
-      if (!kpiData['Activity Name']) {
-        throw new Error('Activity Name is required')
+      if (!kpiData['Activity Description'] && !kpiData['Activity Name']) {
+        throw new Error('Activity Description is required')
       }
       if (!kpiData['Quantity']) {
         throw new Error('Quantity is required')
@@ -1143,7 +1118,7 @@ export function IntelligentKPIForm({
           {project && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Activity Name <span className="text-red-500">*</span>
+                Activity Description <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <input

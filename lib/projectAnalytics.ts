@@ -543,7 +543,7 @@ export function calculateProjectAnalytics(
     const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
     
     // Find matching activity for this KPI to get rate
-    const kpiActivityName = String(kpi.activity_name || kpi['Activity Name'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
+    const kpiActivityName = String(kpi.activity_description || kpi['Activity Description'] || kpi.activity_name || kpi['Activity Name'] || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
     const kpiZone = String(kpi.zone || kpi['Zone'] || rawKPI['Zone'] || '').toString().trim().toLowerCase()
     
     let matchingActivity: BOQActivity | null = null

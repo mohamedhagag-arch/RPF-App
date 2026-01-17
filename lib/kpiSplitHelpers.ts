@@ -28,8 +28,8 @@ export async function fetchCombinedKPIs(
     
     // Filter by activity if provided
     if (activityName) {
-      plannedQuery = plannedQuery.eq('Activity Name', activityName)
-      actualQuery = actualQuery.eq('Activity Name', activityName)
+      plannedQuery = plannedQuery.eq('Activity Description', activityName)
+      actualQuery = actualQuery.eq('Activity Description', activityName)
     }
     
     // Fetch both in parallel
@@ -120,7 +120,7 @@ export function mapKPIPlannedToDB(kpi: Partial<KPIPlanned>): any {
     'Project Full Code': kpi.project_full_code,
     'Project Code': kpi.project_code,
     'Project Sub Code': kpi.project_sub_code,
-    'Activity Name': kpi.activity_name,
+    'Activity Description': kpi.activity_description || kpi.activity_name || '',
     'Activity': kpi.activity,
     'Quantity': kpi.quantity?.toString(),
     'Section': kpi.section,
@@ -139,7 +139,7 @@ export function mapKPIActualToDB(kpi: Partial<KPIActual>): any {
     'Project Full Code': kpi.project_full_code,
     'Project Code': kpi.project_code,
     'Project Sub Code': kpi.project_sub_code,
-    'Activity Name': kpi.activity_name,
+    'Activity Description': kpi.activity_description || kpi.activity_name || '',
     'Activity': kpi.activity,
     'Quantity': kpi.quantity?.toString(),
     'Section': kpi.section,

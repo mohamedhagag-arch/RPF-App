@@ -164,7 +164,7 @@ export function AddVariationForm({
       const insertData = {
         'Project Full Code': projectFullCode,
         'Project Name': projectName,
-        'Variation Ref no.': variationRefNo || null,
+        'Variation Ref no.': variationRefNo ? (variationRefNo.startsWith('VAR-') ? variationRefNo : `VAR-${variationRefNo}`) : null,
         'Item Description': validBOQItem, // Single UUID
         'Quantity Changes': quantityChangesNum,
         'Variation Amount': variationAmountNum,
@@ -286,12 +286,26 @@ export function AddVariationForm({
                 <label className="text-sm font-medium">
                   Variation Ref No.
                 </label>
-                <Input
-                  value={variationRefNo}
-                  onChange={(e) => setVariationRefNo(e.target.value)}
-                  disabled={loading}
-                  placeholder="Enter variation reference number"
-                />
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none">
+                    VAR-
+                  </span>
+                  <Input
+                    value={variationRefNo}
+                    onChange={(e) => {
+                      let value = e.target.value;
+                      // Remove "VAR-" prefix if user types it (will be added automatically)
+                      value = value.replace(/^VAR-+/i, '');
+                      setVariationRefNo(value);
+                    }}
+                    disabled={loading}
+                    placeholder="EXT-123"
+                    className="pl-12"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Prefix "VAR-" will be added automatically
+                </p>
               </div>
               
               {/* Variation Status */}

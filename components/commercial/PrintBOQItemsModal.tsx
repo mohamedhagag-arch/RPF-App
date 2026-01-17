@@ -35,6 +35,7 @@ interface ColumnOption {
 // Define all available columns (same as export modal)
 const allColumns: ColumnOption[] = [
   { key: 'auto_generated_unique_reference_number', label: 'Ref Number', selected: true },
+  { key: 'external_ref_no', label: 'External Ref no.', selected: true },
   { key: 'project_full_code', label: 'Project Full Code', selected: false },
   { key: 'project_name', label: 'Project Name', selected: false },
   { key: 'item_description', label: 'Item Description', selected: true },

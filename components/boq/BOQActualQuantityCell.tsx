@@ -31,11 +31,12 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
     return () => {
       mountedRef.current = false
     }
-  }, [activity.project_code, activity.activity_name, allKPIs])
+  }, [activity.project_code, activity.activity_description || activity.activity_name || activity.activity || '', allKPIs])
   
   const calculateActualFromKPIs = (kpis: any[]) => {
     // Filter for this activity with Zone matching
-    const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
+    const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+    const activityNameLower = activityDescription.toLowerCase().trim()
     
     // ✅ Extract Activity Zone from multiple sources
     const activityZone = (
@@ -113,7 +114,7 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
     try {
       const actual = await calculateActualFromKPI(
         activity.project_code || '',
-        activity.activity_name || ''
+        activity.activity_description || activity.activity_name || activity.activity || ''
       )
       
       if (mountedRef.current) {

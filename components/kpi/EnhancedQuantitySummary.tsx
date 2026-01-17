@@ -2,15 +2,15 @@
  * Enhanced Quantity Summary Component
  * 
  * Calculates and displays quantity summary for a selected activity:
- * - Total: Sum of all Planned KPIs (filtered by Project Full Code, Activity Name, and Zone)
- * - Done: Sum of all Actual KPIs (filtered by Project Full Code, Activity Name, and Zone)
+ * - Total: Sum of all Planned KPIs (filtered by Project Full Code, Activity Description, and Zone)
+ * - Done: Sum of all Actual KPIs (filtered by Project Full Code, Activity Description, and Zone)
  * - Left: Total - Done
  * - Progress: (Done / Total) × 100%
  * 
  * Key Features:
  * - Supports multiple projects with same code but different sub codes (e.g., P5066-A, P5066-B)
  * - Filters by Project Full Code for accurate project matching
- * - Filters by Activity Name (flexible matching)
+ * - Filters by Activity Description (flexible matching)
  * - Filters by Zone if provided (or shows all zones if not provided)
  */
 
@@ -380,13 +380,16 @@ export function EnhancedQuantitySummary({
       
       const projectCode = selectedProject.project_code || ''
       
-      // ✅ Get Activity Name (EXACT match - case-insensitive)
-      const activityName = (selectedActivity.activity_name || 
+      // ✅ Get Activity Description (EXACT match - case-insensitive)
+      const activityName = (selectedActivity.activity_description || 
+                           selectedActivity['Activity Description'] ||
+                           selectedActivity.activity_name || 
+                           selectedActivity['Activity Name'] ||
                            selectedActivity.activity || 
                            '').toLowerCase().trim() // ✅ Normalize to lowercase for consistent matching
       
       if (!activityName) {
-        throw new Error('Activity name is required')
+        throw new Error('Activity description is required')
       }
 
       // ✅ Prepare zone matching data
@@ -399,7 +402,7 @@ export function EnhancedQuantitySummary({
       
       // ✅ Get zone to use for matching (use prop zone if provided, otherwise use activity zone)
       // This should be defined early so it's available throughout the function
-      const zoneToUseForMatching = zone || (selectedActivity.zone_ref || selectedActivity.zone_number || '').toString().trim()
+          const zoneToUseForMatching = zone || (selectedActivity.zone_number || '0').toString().trim()
       
       console.log(`🔍 [EnhancedQuantitySummary] Activity: "${activityName}"`, {
         projectFullCode: projectFullCodeToUse,
@@ -429,7 +432,7 @@ export function EnhancedQuantitySummary({
         // ✅ Fetch all Planned KPIs first (we'll filter client-side for better control)
         let query = supabase
           .from(TABLES.KPI)
-          .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code", "Date", "Target Date", "Activity Date", created_at, input_type, quantity, date, target_date, activity_date, project_code, project_full_code, activity_name')
+          .select('id, "Quantity", "Input Type", "Zone Number", "Activity Description", "Project Full Code", "Project Code", "Activity Date"')
           .eq('Input Type', 'Planned')
         
         // Try to filter by Project Full Code in query (but don't rely on it alone)
@@ -449,9 +452,9 @@ export function EnhancedQuantitySummary({
           })
         }
 
-        // ✅ Filter by Activity Name (STRICT matching - exact match only, case-insensitive)
+        // ✅ Filter by Activity Description (STRICT matching - exact match only, case-insensitive)
         plannedKPIs = plannedKPIs.filter((kpi: any) => {
-          const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim() // ✅ Normalize to lowercase
+          const kpiActivityName = (kpi['Activity Description'] || kpi['Activity Name'] || '').toLowerCase().trim() // ✅ Normalize to lowercase
           // ✅ CRITICAL FIX: Use EXACT match (case-insensitive) to prevent matching different activities
           const activityNameMatch = kpiActivityName === activityName
           if (!activityNameMatch) return false
@@ -468,7 +471,7 @@ export function EnhancedQuantitySummary({
         if (zone && zone.trim() !== '') {
           const beforeZoneFilter = plannedKPIs.length
           plannedKPIs = plannedKPIs.filter((kpi: any) => {
-            const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
+            const kpiZoneRaw = (kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0').toString().trim()
             if (!kpiZoneRaw || kpiZoneRaw === '') {
               // ✅ CRITICAL: If zone is provided but KPI has no zone, exclude it
               // This ensures zone-specific filtering works correctly
@@ -516,14 +519,14 @@ export function EnhancedQuantitySummary({
               inputType: kpi['Input Type'] || kpi.input_type,
               activityName: kpi['Activity Name'] || kpi.activity_name,
               projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
-              zone: kpi['Zone'] || kpi['Zone Number']
+              zone: kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0'
             }))
           })
         } else {
           // Fetch KPIs from database (same approach as EnhancedSmartActualKPIForm)
           let query = supabase
             .from(TABLES.KPI)
-            .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code", "Date", "Target Date", "Activity Date", "Actual Date", created_at, input_type, quantity, date, target_date, activity_date, actual_date, project_code, project_full_code, activity_name')
+            .select('id, "Quantity", "Input Type", "Zone Number", "Activity Description", "Project Full Code", "Project Code", "Activity Date"')
           
           // Optional: Filter by Project Full Code in query (but we'll verify client-side)
           if (projectFullCodeToUse) {
@@ -617,26 +620,24 @@ export function EnhancedQuantitySummary({
           // 3. Zone Matching (EXACT same as kpiMatchesActivityStrict)
           // ✅ CRITICAL FIX: Use zone prop if provided (from parent), otherwise use activity.zone_ref || activity.zone_number
           // This ensures zone-specific filtering works correctly for project P5073 and others
-          // ✅ CRITICAL: Use Zone column ONLY, NOT Section column!
-          // Zone is stored in "Zone" or "Zone Number" columns in database
+          // ✅ CRITICAL: Use Zone Number column ONLY, NOT Section column!
+          // Zone Number is the unified zone field (merged from Zone and Zone Number)
           // Section is a separate field and should NOT be used for zone matching
-          const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || rawKPI['Zone'] || rawKPI['Zone Number'] || kpi.zone || kpi.zone_number || '').toString().trim()
+          const kpiZoneRaw = (rawKPI['Zone Number'] || kpi['Zone Number'] || (kpi as any).zone_number || kpi.zone || rawKPI['Zone'] || kpi['Zone'] || '0').toString().trim()
           
-          // ✅ Priority: Use zone prop (from parent) if provided, otherwise use activity zone
-          const zoneToMatch = zone ? zone : (selectedActivity.zone_ref || selectedActivity.zone_number || '').toString().trim()
+          // ✅ Priority: Use zone prop (from parent) if provided, otherwise use activity zone_number
+          const zoneToMatch = zone ? zone : (selectedActivity.zone_number || '0').toString().trim()
           
-          // ✅ DEBUG: Log zone values to ensure we're using Zone and not Section
+          // ✅ DEBUG: Log zone values to ensure we're using Zone Number and not Section
           if (showDebug) {
             console.log(`🔍 [EnhancedQuantitySummary] Zone matching:`, {
               kpiId: kpi.id,
-              kpiZoneFromZone: kpi['Zone'] || 'NONE',
               kpiZoneFromZoneNumber: kpi['Zone Number'] || 'NONE',
-              kpiZoneFromRaw: rawKPI['Zone'] || 'NONE',
               kpiZoneFromRawZoneNumber: rawKPI['Zone Number'] || 'NONE',
               kpiZoneFinal: kpiZoneRaw || 'NONE',
               kpiSection: kpi['Section'] || kpi.section || 'NONE (not used)',
               zoneToMatch: zoneToMatch || 'NONE',
-              activityZone: (selectedActivity.zone_ref || selectedActivity.zone_number || '').toString().trim() || 'NONE'
+              activityZone: (selectedActivity.zone_number || '0').toString().trim() || 'NONE'
             })
           }
           
@@ -689,7 +690,7 @@ export function EnhancedQuantitySummary({
             const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || '').toString().trim().toUpperCase()
             const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || '').toString().trim().toUpperCase()
             const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
-            const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
+            const kpiZoneRaw = (kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0').toString().trim()
             
             matchingResults.push({
               kpiId: kpi.id,
@@ -733,7 +734,7 @@ export function EnhancedQuantitySummary({
               activityName: kpi['Activity Name'] || kpi.activity_name,
               projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
               projectCode: kpi['Project Code'] || kpi.project_code,
-              zone: kpi['Zone'] || kpi['Zone Number'],
+              zone: kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0',
               quantity: parseQuantity(kpi),
               inputType: kpi['Input Type'] || kpi.input_type
             })),
@@ -900,8 +901,8 @@ export function EnhancedQuantitySummary({
           activityName: kpi['Activity Name'] || 'N/A',
           projectFullCode: kpi['Project Full Code'] || 'N/A',
           projectCode: kpi['Project Code'] || 'N/A',
-          zone: kpi['Zone'] || 'N/A',
-          zoneNumber: kpi['Zone Number'] || 'N/A'
+          zone: kpi['Zone Number'] || (kpi as any).zone_number || '0',
+          zoneNumber: kpi['Zone Number'] || (kpi as any).zone_number || '0'
         }))
       })
 

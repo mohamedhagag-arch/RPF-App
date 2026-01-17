@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/Label'
 import { Alert } from '@/components/ui/Alert'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { X, Save, AlertCircle, CheckCircle, Info, Loader2, Edit, Target, Calendar, Activity, Sparkles } from 'lucide-react'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface BulkEditKPIModalProps {
   selectedKPIs: ProcessedKPI[]
@@ -34,12 +35,9 @@ export function BulkEditKPIModal({
   // Form fields - only fields that can be bulk edited
   const [quantity, setQuantity] = useState('')
   const [unit, setUnit] = useState('')
-  const [targetDate, setTargetDate] = useState('')
-  const [actualDate, setActualDate] = useState('')
   const [activityDate, setActivityDate] = useState('')
   const [zone, setZone] = useState('')
   const [section, setSection] = useState('')
-  const [day, setDay] = useState('')
   const [drilledMeters, setDrilledMeters] = useState('')
   const [notes, setNotes] = useState('')
   
@@ -66,13 +64,10 @@ export function BulkEditKPIModal({
         (k as any).raw?.['Zone Ref']
       ).filter(Boolean)))
       const uniqueSections = Array.from(new Set(selectedKPIs.map(k => k.section || (k as any).raw?.['Section']).filter(Boolean)))
-      const uniqueDays = Array.from(new Set(selectedKPIs.map(k => (k as any).day).filter(Boolean)))
       const uniqueDrilledMeters = Array.from(new Set(selectedKPIs.map(k => k.drilled_meters).filter(dm => dm !== undefined && dm !== null)))
       const uniqueNotes = Array.from(new Set(selectedKPIs.map(k => (k as any).notes).filter(Boolean)))
       
-      // Get dates
-      const uniqueTargetDates = Array.from(new Set(plannedKPIs.map(k => k.target_date).filter(Boolean)))
-      const uniqueActualDates = Array.from(new Set(actualKPIs.map(k => k.activity_date || (k as any).actual_date).filter(Boolean)))
+      // Get dates - only Activity Date (unified field)
       const uniqueActivityDates = Array.from(new Set(selectedKPIs.map(k => k.activity_date).filter(Boolean)))
       
       // Format date for input (YYYY-MM-DD)
@@ -90,12 +85,9 @@ export function BulkEditKPIModal({
       // Set common values (if all KPIs have the same value, pre-fill it)
       setQuantity(uniqueQuantities.length === 1 && uniqueQuantities[0] !== undefined ? uniqueQuantities[0].toString() : '')
       setUnit(uniqueUnits.length === 1 && uniqueUnits[0] ? uniqueUnits[0] : '')
-      setTargetDate(uniqueTargetDates.length === 1 && uniqueTargetDates[0] ? formatDateForInput(uniqueTargetDates[0]) : '')
-      setActualDate(uniqueActualDates.length === 1 && uniqueActualDates[0] ? formatDateForInput(uniqueActualDates[0]) : '')
       setActivityDate(uniqueActivityDates.length === 1 && uniqueActivityDates[0] ? formatDateForInput(uniqueActivityDates[0]) : '')
       setZone(uniqueZones.length === 1 && uniqueZones[0] ? uniqueZones[0] : '')
       setSection(uniqueSections.length === 1 && uniqueSections[0] ? uniqueSections[0] : '')
-      setDay(uniqueDays.length === 1 && uniqueDays[0] ? uniqueDays[0] : '')
       setDrilledMeters(uniqueDrilledMeters.length === 1 && uniqueDrilledMeters[0] !== undefined ? uniqueDrilledMeters[0].toString() : '')
       setNotes(uniqueNotes.length === 1 && uniqueNotes[0] ? uniqueNotes[0] : '')
       
@@ -103,12 +95,9 @@ export function BulkEditKPIModal({
       const newFieldsToUpdate = new Set<string>()
       if (uniqueQuantities.length === 1) newFieldsToUpdate.add('quantity')
       if (uniqueUnits.length === 1) newFieldsToUpdate.add('unit')
-      if (uniqueTargetDates.length === 1) newFieldsToUpdate.add('targetDate')
-      if (uniqueActualDates.length === 1) newFieldsToUpdate.add('actualDate')
       if (uniqueActivityDates.length === 1) newFieldsToUpdate.add('activityDate')
       if (uniqueZones.length === 1) newFieldsToUpdate.add('zone')
       if (uniqueSections.length === 1) newFieldsToUpdate.add('section')
-      if (uniqueDays.length === 1) newFieldsToUpdate.add('day')
       if (uniqueDrilledMeters.length === 1) newFieldsToUpdate.add('drilledMeters')
       if (uniqueNotes.length === 1) newFieldsToUpdate.add('notes')
       
@@ -155,14 +144,37 @@ export function BulkEditKPIModal({
     }
   }, [selectedKPIs])
   
+  // Helper function to calculate Day from Activity Date (matches format used in other forms)
+  const calculateDayFromActivityDate = (dateStr: string): string => {
+    if (!dateStr || dateStr.trim() === '') return ''
+    try {
+      const date = new Date(dateStr)
+      if (isNaN(date.getTime())) return ''
+      const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+      // Format: "Jan 15, 2025 - Monday" (matches formatDate from lib/dateHelpers.ts)
+      const formattedDate = formatDate(dateStr)
+      if (formattedDate === 'N/A') return ''
+      return `${formattedDate} - ${weekday}`
+    } catch {
+      return ''
+    }
+  }
+
   // Handle field changes - track which fields are being edited
   const handleFieldChange = (field: string, value: string, setter: (val: string) => void) => {
     setter(value)
     const newFields = new Set(fieldsToUpdate)
     if (value.trim()) {
       newFields.add(field)
+      // ✅ Auto-calculate Day when Activity Date is updated
+      if (field === 'activityDate' && value.trim()) {
+        newFields.add('day') // Mark Day as to be updated (auto-calculated)
+      }
     } else {
       newFields.delete(field)
+      if (field === 'activityDate') {
+        newFields.delete('day') // Remove Day if Activity Date is cleared
+      }
     }
     setFieldsToUpdate(newFields)
   }
@@ -192,24 +204,14 @@ export function BulkEditKPIModal({
         updateData.unit = unit.trim()
       }
       
-      if (fieldsToUpdate.has('targetDate') && targetDate.trim()) {
-        updateData.target_date = targetDate.trim()
-        // Also update activity_date if it's a Planned KPI
-        if (analysis.planned > 0) {
-          updateData.activity_date = targetDate.trim()
-        }
-      }
-      
-      if (fieldsToUpdate.has('actualDate') && actualDate.trim()) {
-        updateData.actual_date = actualDate.trim()
-        // Also update activity_date if it's an Actual KPI
-        if (analysis.actual > 0) {
-          updateData.activity_date = actualDate.trim()
-        }
-      }
-      
+      // ✅ Activity Date (unified field) - applies to all KPIs (both Planned and Actual)
       if (fieldsToUpdate.has('activityDate') && activityDate.trim()) {
         updateData.activity_date = activityDate.trim()
+        // ✅ Auto-calculate Day from Activity Date
+        const calculatedDay = calculateDayFromActivityDate(activityDate)
+        if (calculatedDay) {
+          updateData.day = calculatedDay
+        }
       }
       
       if (fieldsToUpdate.has('zone') && zone.trim()) {
@@ -221,10 +223,6 @@ export function BulkEditKPIModal({
       
       if (fieldsToUpdate.has('section') && section.trim()) {
         updateData.section = section.trim()
-      }
-      
-      if (fieldsToUpdate.has('day') && day.trim()) {
-        updateData.day = day.trim()
       }
       
       if (fieldsToUpdate.has('drilledMeters') && drilledMeters.trim()) {
@@ -288,12 +286,18 @@ export function BulkEditKPIModal({
     const changes: string[] = []
     if (fieldsToUpdate.has('quantity')) changes.push(`Quantity: ${quantity || '(empty)'}`)
     if (fieldsToUpdate.has('unit')) changes.push(`Unit: ${unit || '(empty)'}`)
-    if (fieldsToUpdate.has('targetDate')) changes.push(`Target Date: ${targetDate || '(empty)'}`)
-    if (fieldsToUpdate.has('actualDate')) changes.push(`Actual Date: ${actualDate || '(empty)'}`)
-    if (fieldsToUpdate.has('activityDate')) changes.push(`Activity Date: ${activityDate || '(empty)'}`)
+    if (fieldsToUpdate.has('activityDate')) {
+      changes.push(`Activity Date: ${activityDate || '(empty)'}`)
+      // ✅ Show that Day will be auto-calculated
+      if (activityDate.trim()) {
+        const calculatedDay = calculateDayFromActivityDate(activityDate)
+        if (calculatedDay) {
+          changes.push(`Day: ${calculatedDay} (auto-calculated)`)
+        }
+      }
+    }
     if (fieldsToUpdate.has('zone')) changes.push(`Zone: ${zone || '(empty)'}`)
     if (fieldsToUpdate.has('section')) changes.push(`Section: ${section || '(empty)'}`)
-    if (fieldsToUpdate.has('day')) changes.push(`Day: ${day || '(empty)'}`)
     if (fieldsToUpdate.has('drilledMeters')) changes.push(`Drilled Meters: ${drilledMeters || '(empty)'}`)
     if (fieldsToUpdate.has('notes')) changes.push(`Notes: ${notes || '(empty)'}`)
     return changes
@@ -356,9 +360,9 @@ export function BulkEditKPIModal({
                   </div>
                 </div>
                 {analysis.hasMixedTypes && (
-                  <div className="mt-3 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md">
-                    <p className="text-xs text-amber-800 dark:text-amber-200">
-                      ⚠️ Mixed types detected - date fields will apply based on type
+                  <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md">
+                    <p className="text-xs text-blue-800 dark:text-blue-200">
+                      ℹ️ Mixed types detected - Activity Date will apply to all selected KPIs (both Planned and Actual)
                     </p>
                   </div>
                 )}
@@ -452,49 +456,7 @@ export function BulkEditKPIModal({
                 </p>
               </div>
               
-              {/* Target Date (for Planned KPIs) */}
-              {analysis.planned > 0 && (
-                <div className="space-y-2">
-                  <Label htmlFor="targetDate" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    <Calendar className="w-4 h-4 inline mr-1" />
-                    Target Date (Planned) {fieldsToUpdate.has('targetDate') && <span className="text-blue-600">*</span>}
-                  </Label>
-                  <Input
-                    id="targetDate"
-                    type="date"
-                    value={targetDate}
-                    onChange={(e) => handleFieldChange('targetDate', e.target.value, setTargetDate)}
-                    disabled={loading}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Applies to {analysis.planned} Planned KPI(s)
-                  </p>
-                </div>
-              )}
-              
-              {/* Actual Date (for Actual KPIs) */}
-              {analysis.actual > 0 && (
-                <div className="space-y-2">
-                  <Label htmlFor="actualDate" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    <Calendar className="w-4 h-4 inline mr-1" />
-                    Actual Date (Actual) {fieldsToUpdate.has('actualDate') && <span className="text-blue-600">*</span>}
-                  </Label>
-                  <Input
-                    id="actualDate"
-                    type="date"
-                    value={actualDate}
-                    onChange={(e) => handleFieldChange('actualDate', e.target.value, setActualDate)}
-                    disabled={loading}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Applies to {analysis.actual} Actual KPI(s)
-                  </p>
-                </div>
-              )}
-              
-              {/* Activity Date (for all) */}
+              {/* Activity Date (unified field for all KPIs) */}
               <div className="space-y-2">
                 <Label htmlFor="activityDate" className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   <Calendar className="w-4 h-4 inline mr-1" />
@@ -509,7 +471,7 @@ export function BulkEditKPIModal({
                   className="w-full"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Applies to all selected KPIs
+                  Applies to all selected KPIs (both Planned and Actual). Day will be auto-calculated.
                 </p>
               </div>
               
@@ -555,25 +517,6 @@ export function BulkEditKPIModal({
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {analysis.commonSection ? `Common: ${analysis.commonSection}` : 'Leave empty to keep existing values'}
-                </p>
-              </div>
-              
-              {/* Day */}
-              <div className="space-y-2">
-                <Label htmlFor="day" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Day {fieldsToUpdate.has('day') && <span className="text-blue-600">*</span>}
-                </Label>
-                <Input
-                  id="day"
-                  type="text"
-                  value={day}
-                  onChange={(e) => handleFieldChange('day', e.target.value, setDay)}
-                  placeholder="Enter day"
-                  disabled={loading}
-                  className="w-full"
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Leave empty to keep existing values
                 </p>
               </div>
               

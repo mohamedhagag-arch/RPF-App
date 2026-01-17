@@ -120,7 +120,7 @@ export function SmartActualKPIForm({
       
       // Handle both old and new column names
       setProjectCode(kpi['Project Full Code'] || kpi.project_full_code || '')
-      setActivityName(kpi['Activity Name'] || kpi.activity_name || '')
+      setActivityName(kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || kpi.activity || '')
       setQuantity(kpi['Quantity']?.toString() || kpi.quantity?.toString() || '')
       setUnit(kpi['Unit'] || kpi.unit || '')
       
@@ -139,8 +139,8 @@ export function SmartActualKPIForm({
       
       setActualDate(formatDateForInput(actualDateValue))
       
-      // Normalize zone: remove project code prefix (e.g., "P9997-1" -> "1")
-      const rawZone = (kpi['Zone'] || kpi.zone || '').toString().trim()
+      // Get Zone Number (merged from Zone and Zone Number)
+      const rawZone = (kpi['Zone Number'] || kpi.zone_number || kpi['Zone'] || kpi.zone || '0').toString().trim()
       const projectCode = (kpi['Project Code'] || kpi.project_code || '').toString().trim()
       let normalizedZone = rawZone
       
@@ -163,7 +163,7 @@ export function SmartActualKPIForm({
       
       console.log('✅ SmartActualKPIForm: KPI data loaded:', {
         projectCode: kpi['Project Full Code'] || kpi.project_full_code,
-        activityName: kpi['Activity Name'] || kpi.activity_name,
+        activityName: kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || kpi.activity || '',
         quantity: kpi['Quantity'] || kpi.quantity,
         unit: kpi['Unit'] || kpi.unit,
         actualDate: formatDateForInput(actualDateValue)
@@ -242,8 +242,13 @@ export function SmartActualKPIForm({
           new Map(allActivitiesData.map((item: any) => [item.id, item])).values()
         )
 
-        // Map to application format
-        const mappedActivities = uniqueActivities.map(mapBOQFromDB)
+        // Map to application format and preserve raw data
+        const mappedActivities = uniqueActivities.map((row: any) => {
+          const mapped = mapBOQFromDB(row)
+          // Preserve raw database row for accessing original column names
+          ;(mapped as any).raw = row
+          return mapped
+        })
         setAvailableActivities(mappedActivities)
 
         console.log(`✅ Auto-loaded ${mappedActivities.length} activities for project ${projectCode}`)
@@ -398,13 +403,18 @@ export function SmartActualKPIForm({
         return false
       })
 
-      // Map to application format
-      const mappedActivities = filteredActivities.map(mapBOQFromDB)
+      // Map to application format and preserve raw data
+      const mappedActivities = filteredActivities.map((row: any) => {
+        const mapped = mapBOQFromDB(row)
+        // Preserve raw database row for accessing original column names
+        ;(mapped as any).raw = row
+        return mapped
+      })
       setAvailableActivities(mappedActivities)
 
       console.log(`✅ Loaded ${mappedActivities.length} activities for project ${projectCode}`)
       console.log(`📊 Activities:`, mappedActivities.map(a => ({
-        name: a.activity_name,
+        name: a.activity_description || a.activity_name || a.activity || '',
         project_code: a.project_code,
         project_full_code: a.project_full_code
       })))
@@ -433,10 +443,37 @@ export function SmartActualKPIForm({
     setHasUserChangedFields(true)
     
     // Find and set the selected activity for smart auto-fill
-    const activity = availableActivities.find(a => a.activity_name === activityName)
+    // Check multiple sources to match the activity
+    const activity = availableActivities.find(a => {
+      const activityObj = a as any
+      const raw = activityObj.raw || {}
+      const activityDesc = activityObj.activity_description || 
+                        activityObj['Activity Description'] ||
+                        activityObj.activity_name || 
+                        activityObj['Activity Name'] ||
+                        activityObj.activity || 
+                        activityObj['Activity'] ||
+                        raw['Activity Description'] ||
+                        raw['Activity Name'] ||
+                        raw['Activity'] ||
+                        ''
+      return activityDesc === activityName
+    })
     if (activity) {
       setSelectedActivity(activity)
-      console.log('🧠 Smart Form: Activity selected for auto-fill:', activity.activity_name)
+      const activityObj = activity as any
+      const raw = activityObj.raw || {}
+      const activityDesc = activityObj.activity_description || 
+                        activityObj['Activity Description'] ||
+                        activityObj.activity_name || 
+                        activityObj['Activity Name'] ||
+                        activityObj.activity || 
+                        activityObj['Activity'] ||
+                        raw['Activity Description'] ||
+                        raw['Activity Name'] ||
+                        raw['Activity'] ||
+                        ''
+      console.log('🧠 Smart Form: Activity selected for auto-fill:', activityDesc)
     }
   }
 
@@ -484,13 +521,13 @@ export function SmartActualKPIForm({
         'Project Full Code': project?.project_full_code || projectCode,
         'Project Code': project?.project_code || (projectCode.includes('-') ? projectCode.split('-')[0] : projectCode),
         'Project Sub Code': project?.project_sub_code || '',
-        'Activity Name': activityName,
+        'Activity Description': activityName, // ✅ Use merged column
+        'Activity Name': activityName, // ✅ Backward compatibility
         'Quantity': Math.round(quantityValue * 100) / 100,
         'Unit': unit,
         'Input Type': 'Actual',
         'Actual Date': actualDate,
-        'Zone': zone,
-        'Zone Number': zoneNumber,
+        'Zone Number': zoneNumber || zone || '0',
         'Day': day,
         'Drilled Meters': drilledMeters ? parseFloat(drilledMeters) : null
       }
@@ -544,13 +581,13 @@ export function SmartActualKPIForm({
         'Project Full Code': project?.project_full_code || projectCode,
         'Project Code': project?.project_code || (projectCode.includes('-') ? projectCode.split('-')[0] : projectCode),
         'Project Sub Code': project?.project_sub_code || '',
-        'Activity Name': activityName,
+        'Activity Description': activityName, // ✅ Use merged column
+        'Activity Name': activityName, // ✅ Backward compatibility
         'Quantity': Math.round(quantityValue * 100) / 100, // Round to 2 decimal places
         'Unit': unit,
         'Input Type': 'Actual', // Fixed to Actual only
         'Actual Date': actualDate,
-        'Zone': zone,
-        'Zone Number': zoneNumber,
+        'Zone Number': zoneNumber || zone || '0',
         'Day': day,
         'Drilled Meters': drilledMeters ? parseFloat(drilledMeters) : null
       }
@@ -740,7 +777,7 @@ export function SmartActualKPIForm({
             <div className="space-y-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 <Activity className="w-4 h-4 inline mr-2" />
-                Activity Name *
+                Activity Description *
               </label>
               <div className="relative">
                 <input
@@ -758,25 +795,56 @@ export function SmartActualKPIForm({
                 {showActivityDropdown && availableActivities.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg max-h-60 overflow-y-auto">
                     {availableActivities
-                      .filter(activity => 
-                        activity.activity_name?.toLowerCase().includes(activityName.toLowerCase())
-                      )
+                      .filter(activity => {
+                        // Get activity description from multiple sources (including raw data)
+                        const activityObj = activity as any
+                        const raw = activityObj.raw || {}
+                        const activityDesc = activityObj.activity_description || 
+                                          activityObj['Activity Description'] ||
+                                          activityObj.activity_name || 
+                                          activityObj['Activity Name'] ||
+                                          activityObj.activity || 
+                                          activityObj['Activity'] ||
+                                          raw['Activity Description'] ||
+                                          raw['Activity Name'] ||
+                                          raw['Activity'] ||
+                                          ''
+                        return activityDesc.toLowerCase().includes(activityName.toLowerCase())
+                      })
                       .slice(0, 10)
-                      .map((activity, index) => (
+                      .map((activity, index) => {
+                        // Get activity description from multiple sources (including raw data)
+                        const activityObj = activity as any
+                        const raw = activityObj.raw || {}
+                        const activityDesc = activityObj.activity_description || 
+                                          activityObj['Activity Description'] ||
+                                          activityObj.activity_name || 
+                                          activityObj['Activity Name'] ||
+                                          activityObj.activity || 
+                                          activityObj['Activity'] ||
+                                          raw['Activity Description'] ||
+                                          raw['Activity Name'] ||
+                                          raw['Activity'] ||
+                                          'No description available'
+                        
+                        return (
                         <button
-                          key={index}
+                          key={activityObj.id || index}
                           type="button"
-                          onClick={() => handleActivitySelect(activity.activity_name || '')}
+                          onClick={() => handleActivitySelect(activityDesc)}
                           className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0"
                         >
                           <div className="font-medium text-gray-900 dark:text-white">
-                            {activity.activity_name}
+                            {activityDesc}
                           </div>
                           <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {activity.project_code || 'No project code'}
+                            {activityObj.unit ? `${activityObj.unit}` : ''}
+                            {activityObj.planned_units ? ` • Planned: ${activityObj.planned_units}` : ''}
+                            {activityObj.project_code ? ` • ${activityObj.project_code}` : ''}
                           </div>
                         </button>
-                      ))}
+                        )
+                      })}
                   </div>
                 )}
               </div>

@@ -41,7 +41,7 @@ interface PendingKPI {
   'Unit'?: string
   'Activity Date'?: string // ✅ Unified date field (replaces Target Date)
   'Section'?: string
-  'Zone'?: string
+  'Zone Number'?: string
   'Value'?: string
   'Approval Status'?: string
   'Approved By'?: string
@@ -168,7 +168,8 @@ export default function PendingApprovalKPIPage() {
           'Approval Status': sample['Approval Status'],
           'Notes': (sample['Notes'] || '').substring(0, 50),
           'Input Type': sample['Input Type'],
-          'Activity Name': (sample['Activity Name'] || '').substring(0, 30)
+          'Activity Description': (sample['Activity Description'] || sample['Activity Name'] || '').substring(0, 30),
+          'Activity Name': (sample['Activity Description'] || sample['Activity Name'] || '').substring(0, 30) // Backward compatibility
         })
       }
 
@@ -368,7 +369,11 @@ export default function PendingApprovalKPIPage() {
       // Update all editable fields
       if (editedKPI.project_full_code !== undefined) updatePayload['Project Full Code'] = editedKPI.project_full_code
       if (editedKPI.project_code !== undefined) updatePayload['Project Code'] = editedKPI.project_code
-      if (editedKPI.activity_name !== undefined) updatePayload['Activity Name'] = editedKPI.activity_name
+      if (editedKPI.activity_name !== undefined || editedKPI.activity_description !== undefined) {
+        const activityDesc = editedKPI.activity_description || editedKPI.activity_name || ''
+        updatePayload['Activity Description'] = activityDesc
+        updatePayload['Activity Name'] = activityDesc // Backward compatibility
+      }
       if (editedKPI.quantity !== undefined) updatePayload['Quantity'] = String(editedKPI.quantity)
       if (editedKPI.unit !== undefined) updatePayload['Unit'] = editedKPI.unit
       // ✅ Use Activity Date (unified field) instead of Target Date
@@ -377,7 +382,7 @@ export default function PendingApprovalKPIPage() {
         updatePayload['Activity Date'] = String(activityDate).split('T')[0] // Ensure YYYY-MM-DD format
       }
       if (editedKPI.section !== undefined) updatePayload['Section'] = editedKPI.section
-      if (editedKPI.zone !== undefined) updatePayload['Zone'] = editedKPI.zone
+      if (editedKPI.zone !== undefined) updatePayload['Zone Number'] = editedKPI.zone
       if (editedKPI.value !== undefined) updatePayload['Value'] = String(editedKPI.value)
 
       if (isRejected) {
@@ -439,7 +444,11 @@ export default function PendingApprovalKPIPage() {
         
         if (editedData.project_full_code !== undefined) updatePayload['Project Full Code'] = editedData.project_full_code
         if (editedData.project_code !== undefined) updatePayload['Project Code'] = editedData.project_code
-        if (editedData.activity_name !== undefined) updatePayload['Activity Name'] = editedData.activity_name
+        if (editedData.activity_name !== undefined || editedData.activity_description !== undefined) {
+          const activityDesc = editedData.activity_description || editedData.activity_name || ''
+          updatePayload['Activity Description'] = activityDesc
+          updatePayload['Activity Name'] = activityDesc // Backward compatibility
+        }
         if (editedData.quantity !== undefined) updatePayload['Quantity'] = String(editedData.quantity)
         if (editedData.unit !== undefined) updatePayload['Unit'] = editedData.unit
         // ✅ Use Activity Date (unified field) instead of Target Date
@@ -761,7 +770,7 @@ export default function PendingApprovalKPIPage() {
       // ✅ Remove ONLY columns that definitely don't exist in main KPI table
       // COMPREHENSIVE LIST: All columns that exist in kpi_rejected but NOT in "Planning Database - KPI"
       // Based on PRODUCTION_SCHEMA_COMPLETE.sql - the actual KPI table only has these columns:
-      // id, Project Full Code, Project Code, Project Sub Code, Activity Name, Activity, Input Type,
+      // id, Project Full Code, Project Code, Project Sub Code, Activity Description, Input Type,
       // Quantity, Unit, Section, Zone, Drilled Meters, Value, Activity Date (DATE type),
       // Day, Recorded By, Notes, created_at, updated_at
       // Plus potentially: Activity Timing, Approval Status, Approved By, Approval Date (from migrations)
@@ -830,7 +839,7 @@ export default function PendingApprovalKPIPage() {
         'Project Full Name',                 // ❌ NOT in actual database
         'Project Status',                    // ❌ NOT in main KPI table (causes "Could not find column" error)
         'Zone Number',                       // ❌ NOT in main KPI table
-        'Zone #',                            // ❌ NOT in actual database (use "Zone" instead)
+        'Zone #',                            // ❌ NOT in actual database (use "Zone Number" instead)
         'Column 44',                         // ❌ NOT in actual database
         'Column 45',                         // ❌ NOT in actual database
         'Activity Division',                 // ❌ NOT in actual database (may exist in some schemas but not production)
@@ -1008,7 +1017,7 @@ export default function PendingApprovalKPIPage() {
       // ✅ Remove ONLY columns that definitely don't exist in main KPI table
       // COMPREHENSIVE LIST: All columns that exist in kpi_rejected but NOT in "Planning Database - KPI"
       // Based on PRODUCTION_SCHEMA_COMPLETE.sql - the actual KPI table only has these columns:
-      // id, Project Full Code, Project Code, Project Sub Code, Activity Name, Activity, Input Type,
+      // id, Project Full Code, Project Code, Project Sub Code, Activity Description, Input Type,
       // Quantity, Unit, Section, Zone, Drilled Meters, Value, Activity Date (DATE type),
       // Day, Recorded By, Notes, created_at, updated_at
       // Plus potentially: Activity Timing, Approval Status, Approved By, Approval Date (from migrations)
@@ -1077,7 +1086,7 @@ export default function PendingApprovalKPIPage() {
         'Project Full Name',                 // ❌ NOT in actual database
         'Project Status',                    // ❌ NOT in main KPI table (causes "Could not find column" error)
         'Zone Number',                       // ❌ NOT in main KPI table
-        'Zone #',                            // ❌ NOT in actual database (use "Zone" instead)
+        'Zone #',                            // ❌ NOT in actual database (use "Zone Number" instead)
         'Column 44',                         // ❌ NOT in actual database
         'Column 45',                         // ❌ NOT in actual database
         'Activity Division',                 // ❌ NOT in actual database (may exist in some schemas but not production)
@@ -1155,7 +1164,11 @@ export default function PendingApprovalKPIPage() {
       if (editedData && Object.keys(editedData).length > 0) {
         if (editedData.project_full_code !== undefined) mainTableData['Project Full Code'] = editedData.project_full_code
         if (editedData.project_code !== undefined) mainTableData['Project Code'] = editedData.project_code
-        if (editedData.activity_name !== undefined) mainTableData['Activity Name'] = editedData.activity_name
+        if (editedData.activity_name !== undefined || editedData.activity_description !== undefined) {
+          const activityDesc = editedData.activity_description || editedData.activity_name || ''
+          mainTableData['Activity Description'] = activityDesc
+          mainTableData['Activity Name'] = activityDesc // Backward compatibility
+        }
         if (editedData.quantity !== undefined) mainTableData['Quantity'] = String(editedData.quantity)
         if (editedData.unit !== undefined) mainTableData['Unit'] = editedData.unit
         // ✅ Use Activity Date (unified field) instead of Target Date
@@ -1219,7 +1232,7 @@ export default function PendingApprovalKPIPage() {
           .from(TABLES.KPI)
           .delete()
           .eq('Project Full Code', mainTableData['Project Full Code'])
-          .eq('Activity Name', mainTableData['Activity Name'])
+          .eq('Activity Description', mainTableData['Activity Description'] || mainTableData['Activity Name'] || '')
           // ✅ Activity Date is now DATE type - ensure YYYY-MM-DD format
           .eq('Activity Date', (mainTableData['Activity Date'] || mainTableData['Actual Date'] || mainTableData['Target Date'] || '').toString().split('T')[0])
           .order('created_at', { ascending: false })
@@ -1854,8 +1867,8 @@ export default function PendingApprovalKPIPage() {
     if (field === 'Project Full Code') {
       return kpi.project_full_code || kpi['Project Full Code'] || ''
     }
-    if (field === 'Activity Name') {
-      return kpi.activity_name || kpi['Activity Name'] || ''
+    if (field === 'Activity Name' || field === 'Activity Description') {
+      return kpi.activity_description || kpi['Activity Description'] || kpi.activity_name || kpi['Activity Name'] || ''
     }
     if (field === 'Quantity') {
       return kpi.quantity || kpi['Quantity'] || '0'
@@ -1900,11 +1913,11 @@ export default function PendingApprovalKPIPage() {
     : currentKPIs
   
   const uniqueActivities = Array.from(new Set(filteredKPIsForActivitiesZones.map(kpi => 
-    getField(kpi, 'Activity Name') || ''
+    getField(kpi, 'Activity Description') || getField(kpi, 'Activity Name') || ''
   ).filter(Boolean))).sort()
   
   const uniqueZones = Array.from(new Set(filteredKPIsForActivitiesZones.map(kpi => 
-    getField(kpi, 'Zone') || ''
+    getField(kpi, 'Zone Number') || (getField(kpi, 'Zone') || '0')
   ).filter(Boolean))).sort()
   
   // ✅ Filter KPIs based on selected filters
@@ -1985,11 +1998,11 @@ export default function PendingApprovalKPIPage() {
     
     // Get valid activities and zones from the filtered KPIs
     const validActivities = Array.from(new Set(validKPIs.map(kpi => 
-      getField(kpi, 'Activity Name') || ''
+      getField(kpi, 'Activity Description') || getField(kpi, 'Activity Name') || ''
     ).filter(Boolean)))
     
     const validZones = Array.from(new Set(validKPIs.map(kpi => 
-      getField(kpi, 'Zone') || ''
+      getField(kpi, 'Zone Number') || (getField(kpi, 'Zone') || '0')
     ).filter(Boolean)))
     
     // Remove invalid activities (not in selected projects)
@@ -2532,7 +2545,7 @@ export default function PendingApprovalKPIPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                             <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white truncate">
-                              {getField(kpi, 'Activity Name') || 'N/A'}
+                              {getField(kpi, 'Activity Description') || getField(kpi, 'Activity Name') || 'N/A'}
                             </h3>
                             <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
                               Project: {getProjectName(getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || '')} ({getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || 'N/A'})
@@ -2904,7 +2917,7 @@ export default function PendingApprovalKPIPage() {
                                   </div>
                                   <div>
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                                    {getField(kpi, 'Activity Name') || 'N/A'}
+                                    {getField(kpi, 'Activity Description') || getField(kpi, 'Activity Name') || 'N/A'}
                                   </h3>
                                   <p className="text-sm text-gray-600 dark:text-gray-400">
                                     Project: {getProjectName(getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || '')} ({getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || 'N/A'})
@@ -3197,15 +3210,15 @@ export default function PendingApprovalKPIPage() {
                   />
                 </div>
 
-                {/* Activity Name */}
+                {/* Activity Description */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Activity Name
+                    Activity Description
                   </label>
                   <input
                     type="text"
-                    value={editingKPI?.activity_name || editingKPI?.['Activity Name'] || ''}
-                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, activity_name: e.target.value, id: editingKPI.id })}
+                    value={editingKPI?.activity_description || editingKPI?.['Activity Description'] || editingKPI?.activity_name || editingKPI?.['Activity Name'] || ''}
+                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, activity_description: e.target.value, activity_name: e.target.value, id: editingKPI.id })}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
                   />
                 </div>
@@ -3269,7 +3282,7 @@ export default function PendingApprovalKPIPage() {
                   </label>
                   <input
                     type="text"
-                    value={editingKPI?.zone || editingKPI?.['Zone'] || ''}
+                    value={editingKPI?.zoneNumber || editingKPI?.['Zone Number'] || editingKPI?.zone || editingKPI?.['Zone'] || '0'}
                     onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, zone: e.target.value, id: editingKPI.id })}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
                   />

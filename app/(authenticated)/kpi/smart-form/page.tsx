@@ -104,7 +104,7 @@ export default function SmartKPIPage() {
       
       if (notWorkedOn || hasZeroQuantity) {
         console.error('🚫 BLOCKED: Attempted to create KPI for activity that should be excluded:', {
-          name: kpiData['Activity Name'] || kpiData.activity_name,
+          name: kpiData['Activity Description'] || kpiData['Activity Name'] || kpiData.activity_description || kpiData.activity_name || '',
           notWorkedOn: notWorkedOn,
           hasZeroQuantity: hasZeroQuantity,
           quantity: quantityValue,
@@ -153,17 +153,18 @@ export default function SmartKPIPage() {
         project_code: kpiData.project_code
       })
       
-      const finalActivityName = kpiData['Activity Name'] || kpiData.activity_name
+      const finalActivityName = kpiData['Activity Description'] || kpiData['Activity Name'] || kpiData.activity_description || kpiData.activity_name || ''
       const finalQuantity = quantityValue // Use the already parsed value
       
       // Find related activity to calculate Value
       let calculatedValue = kpiData['Value'] || kpiData.value || 0
       if (!calculatedValue || calculatedValue === 0) {
         // Try to find activity to get rate
-        const relatedActivity = activities.find((a: any) => 
-          a.activity_name === finalActivityName && 
-          (a.project_code === finalProjectCode || a.project_full_code === finalProjectCode)
-        )
+        const relatedActivity = activities.find((a: any) => {
+          const activityDesc = a.activity_description || (a as any).activity_name || a.activity || ''
+          return activityDesc === finalActivityName && 
+                 (a.project_code === finalProjectCode || a.project_full_code === finalProjectCode)
+        })
         
         if (relatedActivity) {
           let rate = 0
@@ -226,24 +227,18 @@ export default function SmartKPIPage() {
         unit: kpiData['Unit'] || kpiData.unit || '',
         inputType: 'Actual', // Always Actual for manual entry
         activityDate: activityDate, // ✅ Unified date field (replaces targetDate and actualDate)
-        // ✅ Map Zone Number to Zone (NOT to Section - Section is separate)
+        // ✅ Map Zone Number (merged from Zone and Zone Number)
         // ✅ NOT from Section - Section is separate from Zone
-        zoneNumber: kpiData['Zone Number'] || kpiData['Zone'] || kpiData.zone_number || kpiData.zone || '0'
+        zoneNumber: kpiData['Zone Number'] || kpiData.zone_number || kpiData['Zone'] || kpiData.zone || '0'
       })
       
       // ✅ CRITICAL FIX: Override Project Code to use project_code only (not project_full_code)
       // This ensures Project Code contains "4110" and Project Full Code contains "4110-P"
       standardizedData['Project Code'] = projectCodeOnly
       
-      // ✅ CRITICAL FIX: Ensure Zone is formatted as: full code + zone (e.g., "P8888-P-01-0")
-      // Zone should use project_full_code, not project_code
-      if (standardizedData['Zone'] && finalProjectCode) {
-        const currentZone = standardizedData['Zone']
-        // If zone doesn't already contain project_full_code, format it
-        if (!currentZone.includes(finalProjectCode)) {
-          standardizedData['Zone'] = `${finalProjectCode}-${currentZone}`
-          console.log(`✅ Formatted Zone: ${currentZone} → ${standardizedData['Zone']}`)
-        }
+      // ✅ CRITICAL FIX: Ensure Zone Number is set (merged from Zone and Zone Number)
+      if (!standardizedData['Zone Number'] || standardizedData['Zone Number'] === '') {
+        standardizedData['Zone Number'] = standardizedData['Zone Number'] || '0'
       }
       
       // ✅ Add Value field if available or calculated
@@ -272,7 +267,7 @@ export default function SmartKPIPage() {
       console.log('✅ KPI created successfully with consistent format:', data)
       
       // Show success message with more details
-      const successActivityName = standardizedData['Activity Name']
+      const successActivityName = standardizedData['Activity Description'] || standardizedData['Activity Name'] || finalActivityName
       const successProjectCode = standardizedData['Project Full Code']
       const successQuantity = standardizedData['Quantity']
       

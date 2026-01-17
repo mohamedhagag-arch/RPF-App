@@ -581,10 +581,22 @@ export function KPITableWithCustomization({
           })
         }
         
+        // ✅ Get activity description from multiple sources (prioritize Activity Description from database)
+        // Note: rawKPIDetails is already declared above at line 528
+        const activityDescription = kpi.activity_description || 
+                                   getKPIField(kpi, 'Activity Description') ||
+                                   rawKPIDetails['Activity Description'] ||
+                                   kpi.activity_name || 
+                                   getKPIField(kpi, 'Activity Name') ||
+                                   rawKPIDetails['Activity Name'] ||
+                                   kpi.activity ||
+                                   rawKPIDetails['Activity'] ||
+                                   ''
+        
         return (
           <div className="space-y-1">
             <div className="font-medium text-gray-900 dark:text-white text-sm">
-              {kpi.activity_name || 'N/A'}
+              {activityDescription || 'N/A'}
             </div>
             {projectDisplay && projectDisplay !== 'N/A' && (
             <div className="text-xs text-gray-600 dark:text-gray-400">

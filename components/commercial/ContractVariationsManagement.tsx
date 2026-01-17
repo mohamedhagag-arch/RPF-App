@@ -950,7 +950,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       const insertData: any = {
         'Project Full Code': newVariationData.project_full_code,
         'Project Name': newVariationData.project_name,
-        'Variation Ref no.': newVariationData.variation_ref_no || null,
+        'Variation Ref no.': newVariationData.variation_ref_no ? (newVariationData.variation_ref_no.startsWith('VAR-') ? newVariationData.variation_ref_no : `VAR-${newVariationData.variation_ref_no}`) : null,
         'Item Description': validBOQItem,
         'Quantity Changes': newVariationData.quantity_changes !== undefined && newVariationData.quantity_changes !== null ? newVariationData.quantity_changes : 0,
         'Variation Amount': newVariationData.variation_amount !== undefined && newVariationData.variation_amount !== null ? newVariationData.variation_amount : 0,
@@ -1031,7 +1031,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       const updateData: any = {
         'Project Full Code': editingData.project_full_code,
         'Project Name': editingData.project_name,
-        'Variation Ref no.': editingData.variation_ref_no || null,
+        'Variation Ref no.': editingData.variation_ref_no ? (editingData.variation_ref_no.startsWith('VAR-') ? editingData.variation_ref_no : `VAR-${editingData.variation_ref_no}`) : null,
         'Item Description': editingData.item_description || null,
         'Quantity Changes': editingData.quantity_changes !== undefined && editingData.quantity_changes !== null ? editingData.quantity_changes : 0,
         'Variation Amount': editingData.variation_amount !== undefined && editingData.variation_amount !== null ? editingData.variation_amount : 0,
@@ -1860,12 +1860,22 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                      <Input
-                        value={newVariationData.variation_ref_no || ''}
-                        onChange={(e) => setNewVariationData({ ...newVariationData, variation_ref_no: e.target.value })}
-                        className="w-full"
-                        placeholder="Variation Ref No."
-                      />
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none text-sm">
+                          VAR-
+                        </span>
+                        <Input
+                          value={newVariationData.variation_ref_no || ''}
+                          onChange={(e) => {
+                            let value = e.target.value;
+                            // Remove "VAR-" prefix if user types it (will be added automatically)
+                            value = value.replace(/^VAR-+/i, '');
+                            setNewVariationData({ ...newVariationData, variation_ref_no: value });
+                          }}
+                          className="w-full pl-12"
+                          placeholder="EXT-123"
+                        />
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
                       <div className="space-y-2">
@@ -2112,14 +2122,26 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                           {isEditing ? (
-                            <Input
-                              value={editingData.variation_ref_no || ''}
-                              onChange={(e) => setEditingData({ ...editingData, variation_ref_no: e.target.value })}
-                              className="w-full"
-                            />
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none text-sm">
+                                VAR-
+                              </span>
+                              <Input
+                                value={editingData.variation_ref_no ? editingData.variation_ref_no.replace(/^VAR-+/i, '') : ''}
+                                onChange={(e) => {
+                                  let value = e.target.value;
+                                  // Remove "VAR-" prefix if user types it (will be added automatically)
+                                  value = value.replace(/^VAR-+/i, '');
+                                  setEditingData({ ...editingData, variation_ref_no: value });
+                                }}
+                                className="w-full pl-12"
+                                placeholder="EXT-123"
+                              />
+                            </div>
                           ) : (
                             variation.variation_ref_no || '-'
                           )}
+                          {/* Display the full value with VAR- prefix */}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
                           {isEditing ? (

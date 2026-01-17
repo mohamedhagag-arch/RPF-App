@@ -90,11 +90,10 @@ export interface BOQActivity {
   project_code: string
   project_sub_code: string
   project_full_code: string
-  activity: string
+  activity_description: string // ✅ Merged from Activity and Activity Name (prefer Activity if present)
   activity_division: string
   unit: string
   zone_number: string
-  activity_name: string
   total_units: number
   planned_units: number
   actual_units: number
@@ -145,8 +144,9 @@ export interface KPIRecord {
   project_full_code: string
   project_code?: string
   project_sub_code?: string
-  activity_name: string
-  activity?: string
+  activity_description: string // ✅ Merged from Activity Name and Activity (prefer Activity Name if present)
+  activity_name?: string // ✅ Deprecated - kept for backward compatibility
+  activity?: string // ✅ Deprecated - kept for backward compatibility
   kpi_name?: string
   quantity: number
   input_type: 'Planned' | 'Actual'
@@ -162,7 +162,7 @@ export interface KPIRecord {
   day?: string                      // Reference day (calculated from Activity Date)
   
   // 📍 Location Fields
-  zone?: string                     // Zone/Area
+  zone_number?: string              // Zone Number (merged from Zone and Zone Number)
   recorded_by?: string              // Who recorded the data (for Actual only)
   
   // ✅ Activity Timing (inherited from BOQ Activity)
@@ -429,6 +429,7 @@ export interface MachineDailyRateHistory {
 export interface CommercialBOQItem {
   id: string
   auto_generated_unique_reference_number: string // Auto-generated unique reference number
+  external_ref_no: string // External reference number
   project_full_code: string
   project_name: string
   item_description: string

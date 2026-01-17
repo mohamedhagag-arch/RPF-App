@@ -9,7 +9,7 @@ import { TABLES } from './supabase'
 import { getWorkingDays, WorkdaysConfig } from './workdaysCalculator'
 
 export interface GeneratedKPI {
-  activity_name: string
+  activity_description: string // ✅ Merged from Activity and Activity Name
   quantity: number
   unit: string
   activity_date: string // ✅ Unified date field (replaces target_date)
@@ -30,9 +30,10 @@ export async function generateKPIsFromBOQ(
   activity: BOQActivity,
   config?: WorkdaysConfig
 ): Promise<GeneratedKPI[]> {
-  console.log('🎯 Generating KPIs for activity:', activity.activity_name)
+  const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+  console.log('🎯 Generating KPIs for activity:', activityDescription)
   console.log('📋 Activity data received:', {
-    activity_name: activity.activity_name,
+    activity_description: activityDescription,
     planned_activity_start_date: activity.planned_activity_start_date,
     activity_planned_start_date: activity.activity_planned_start_date,
     deadline: activity.deadline,
@@ -57,7 +58,7 @@ export async function generateKPIsFromBOQ(
       has_value: hasValue,
       affects_timeline: affectsTimeline,
       use_virtual_material: useVirtualMaterial,
-      activity_name: activity.activity_name
+      activity_description: activityDescription
     })
     
     // ✅ If use_virtual_material is true, ALWAYS generate KPIs (regardless of other conditions)
@@ -89,7 +90,7 @@ export async function generateKPIsFromBOQ(
     const endDate = new Date(endDateStr)
     
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      console.warn('⚠️ Invalid dates for activity:', activity.activity_name, {
+      console.warn('⚠️ Invalid dates for activity:', activityDescription, {
         startDate: startDateStr,
         endDate: endDateStr,
         startDateValid: !isNaN(startDate.getTime()),
@@ -99,10 +100,10 @@ export async function generateKPIsFromBOQ(
     }
     
     const workdays = await getWorkingDays(startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0], config)
-    console.log(`📅 Calculated ${workdays.length} workdays for ${activity.activity_name} (from ${startDateStr} to ${endDateStr})`)
+    console.log(`📅 Calculated ${workdays.length} workdays for ${activityDescription} (from ${startDateStr} to ${endDateStr})`)
     
     if (workdays.length === 0) {
-      console.warn('⚠️ No workdays calculated for activity:', activity.activity_name)
+      console.warn('⚠️ No workdays calculated for activity:', activityDescription)
       return []
     }
     
@@ -127,7 +128,7 @@ export async function generateKPIsFromBOQ(
       const finalQuantity = baseQuantityPerDay + extraQuantity
       
       return {
-        activity_name: activity.activity_name || activity.activity || '',
+        activity_description: activityDescription, // ✅ Use Activity Description (merged from Activity and Activity Name)
         quantity: finalQuantity,
         unit: activity.unit || '',
         activity_date: date.toISOString().split('T')[0], // ✅ Unified date field (DATE type, YYYY-MM-DD format)
@@ -157,7 +158,7 @@ export async function generateKPIsFromBOQ(
     
     // ✅ Verify total quantity matches planned units
     const calculatedTotal = kpis.reduce((sum, kpi) => sum + kpi.quantity, 0)
-    console.log(`✅ Generated ${kpis.length} KPIs for ${activity.activity_name}`)
+    console.log(`✅ Generated ${kpis.length} KPIs for ${activityDescription}`)
     console.log(`📊 Total Quantity Verification: ${calculatedTotal} (Generated) === ${totalQuantity} (Planned Units)`)
     
     if (calculatedTotal !== totalQuantity) {
@@ -193,7 +194,7 @@ async function deleteExistingPlannedKPIs(
       .from(TABLES.KPI)
       .select('id')
       .eq('Project Full Code', projectCode)
-      .eq('Activity Name', activityName)
+      .eq('Activity Description', activityName)
       .eq('Input Type', 'Planned')
     
     if (checkError) throw checkError
@@ -206,7 +207,7 @@ async function deleteExistingPlannedKPIs(
         .from(TABLES.KPI)
         .delete()
         .eq('Project Full Code', projectCode)
-        .eq('Activity Name', activityName)
+        .eq('Activity Description', activityName)
         .eq('Input Type', 'Planned')
       
       if (deleteError) throw deleteError
@@ -266,7 +267,7 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
     // ✅ CLEANUP: Delete existing Planned KPIs before creating new ones (prevents duplicates!)
     if (cleanupFirst && kpis.length > 0) {
       const projectCode = kpis[0].project_full_code
-      const activityName = kpis[0].activity_name
+      const activityName = kpis[0].activity_description // ✅ Use Activity Description instead of activity_name
       
       const cleanupResult = await deleteExistingPlannedKPIs(projectCode, activityName)
       deletedCount = cleanupResult.deletedCount
@@ -287,7 +288,7 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
         'Project Full Code': kpi.project_full_code,
         'Project Code': kpi.project_full_code || kpi.project_code, // ✅ Use full_code as code if available
         'Project Sub Code': kpi.project_sub_code,
-        'Activity Name': kpi.activity_name,
+        'Activity Description': kpi.activity_description,
         'Activity Division': kpi.activity_division || '', // ✅ Division field
         'Activity Timing': kpi.activity_timing || 'post-commencement', // ✅ Activity Timing field
         'Quantity': kpi.quantity.toString(),
@@ -296,21 +297,8 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
       'Unit': kpi.unit,
       // ✅ Section and Zone are separate fields
       'Section': kpi.section || '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
-      // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
-      'Zone': (() => {
-        const projectFullCode = kpi.project_full_code || kpi.project_code || ''
-        const activityZone = kpi.zone || ''
-        if (activityZone && projectFullCode) {
-          // If zone already contains project code, use it as is
-          if (activityZone.includes(projectFullCode)) {
-            return activityZone
-          }
-          // Otherwise, format as: full code + zone
-          return `${projectFullCode}-${activityZone}`
-        }
-        return activityZone || ''
-      })(),
-      'Zone Number': '', // ✅ Zone Number can be extracted from zone if needed
+      // ✅ Zone Number is the unified zone field (merged from Zone and Zone Number)
+      'Zone Number': kpi.zone || '0',
       'Day': kpi.day,
       'Approval Status': 'approved', // ✅ Auto-approve Planned KPIs
       'created_by': createdByValue // ✅ Set created_by
@@ -400,7 +388,8 @@ export async function generateAndSaveKPIs(
   config?: WorkdaysConfig
 ): Promise<{ success: boolean; message: string; kpisGenerated: number; kpisSaved: number; defaultDateUsed?: boolean }> {
   try {
-    console.log('🚀 Starting KPI generation for:', activity.activity_name)
+    const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+    console.log('🚀 Starting KPI generation for:', activityDescription)
     
     // Generate KPIs
     const kpis = await generateKPIsFromBOQ(activity, config)
@@ -449,9 +438,10 @@ export async function updateExistingKPIs(
   try {
     const supabase = getSupabaseClient()
     
+    const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
     console.log('🔄 Updating existing KPIs for activity:', {
       oldName: oldActivityName,
-      newName: activity.activity_name,
+      newName: activityDescription,
       projectCode: activity.project_code,
       activity_timing: activity.activity_timing, // ✅ Log Activity Timing
       has_value: activity.has_value,
@@ -492,7 +482,7 @@ export async function updateExistingKPIs(
       .from(TABLES.KPI)
       .select('*')
       .eq('Project Full Code', projectFullCode)
-      .eq('Activity Name', oldActivityName)
+      .eq('Activity Description', oldActivityName)
       .eq('Input Type', 'Planned')
       .order('Activity Date', { ascending: true })
     
@@ -507,7 +497,7 @@ export async function updateExistingKPIs(
           .select('*')
           .eq('Project Code', projectCode)
           .eq('Project Sub Code', projectSubCode)
-          .eq('Activity Name', oldActivityName)
+          .eq('Activity Description', oldActivityName)
           .eq('Input Type', 'Planned')
           .order('Activity Date', { ascending: true })
         
@@ -520,7 +510,7 @@ export async function updateExistingKPIs(
             .from(TABLES.KPI)
             .select('*')
             .eq('Project Code', projectCode)
-            .eq('Activity Name', oldActivityName)
+            .eq('Activity Description', oldActivityName)
             .eq('Input Type', 'Planned')
             .order('Activity Date', { ascending: true })
           
@@ -535,7 +525,7 @@ export async function updateExistingKPIs(
           .from(TABLES.KPI)
           .select('*')
           .eq('Project Code', projectCode)
-          .eq('Activity Name', oldActivityName)
+          .eq('Activity Description', oldActivityName)
           .eq('Input Type', 'Planned')
           .order('Activity Date', { ascending: true })
         
@@ -556,7 +546,7 @@ export async function updateExistingKPIs(
     // ✅ Log Activity Timing from BOQ Activity
     console.log('⏰ Activity Timing from BOQ Activity:', {
       activity_timing: activity.activity_timing,
-      activity_name: activity.activity_name,
+      activity_description: activityDescription,
       project_full_code: activity.project_full_code
     })
     
@@ -620,7 +610,7 @@ export async function updateExistingKPIs(
           .from(TABLES.KPI)
           // @ts-ignore
           .update({
-            'Activity Name': newKPI.activity_name,
+            'Activity Description': newKPI.activity_description || '',
             'Activity Division': newKPI.activity_division || '', // ✅ Update Division
             'Activity Timing': newKPI.activity_timing || 'post-commencement', // ✅ Update Activity Timing
             'Quantity': newKPI.quantity.toString(),
@@ -631,7 +621,7 @@ export async function updateExistingKPIs(
             'Project Full Code': newKPI.project_full_code,
             // ✅ Section and Zone are separate fields
             'Section': newKPI.section || '', // ✅ Section is separate from Zone
-            'Zone': newKPI.zone || '', // ✅ Zone comes from activity.zone_ref or zone_number
+            'Zone Number': newKPI.zone || '0', // ✅ Zone Number comes from activity.zone_number
             'Day': newKPI.day
           })
           .eq('id', (existingKPI as any).id)
@@ -657,7 +647,7 @@ export async function updateExistingKPIs(
           .from(TABLES.KPI)
           // @ts-ignore
           .update({
-            'Activity Name': newKPI.activity_name,
+            'Activity Description': newKPI.activity_description || '',
             'Activity Division': newKPI.activity_division || '', // ✅ Update Division
             'Activity Timing': newKPI.activity_timing || 'post-commencement', // ✅ Update Activity Timing
             'Quantity': newKPI.quantity.toString(),
@@ -668,7 +658,7 @@ export async function updateExistingKPIs(
             'Project Full Code': newKPI.project_full_code,
             // ✅ Section and Zone are separate fields
             'Section': newKPI.section || '', // ✅ Section is separate from Zone
-            'Zone': newKPI.zone || '', // ✅ Zone comes from activity.zone_ref or zone_number
+            'Zone Number': newKPI.zone || '0', // ✅ Zone Number comes from activity.zone_number
             'Day': newKPI.day
           })
           .eq('id', (existingKPI as any).id)
@@ -721,7 +711,7 @@ export async function updateExistingKPIs(
           .from(TABLES.KPI)
           // @ts-ignore
           .update({
-            'Activity Name': newKPI.activity_name,
+            'Activity Description': newKPI.activity_description || '',
             'Activity Division': newKPI.activity_division || '', // ✅ Update Division
             'Activity Timing': newKPI.activity_timing || 'post-commencement', // ✅ Update Activity Timing
             'Quantity': newKPI.quantity.toString(),
@@ -732,7 +722,7 @@ export async function updateExistingKPIs(
             'Project Full Code': newKPI.project_full_code,
             // ✅ Section and Zone are separate fields
             'Section': newKPI.section || '', // ✅ Section is separate from Zone
-            'Zone': newKPI.zone || '', // ✅ Zone comes from activity.zone_ref or zone_number
+            'Zone Number': newKPI.zone || '0', // ✅ Zone Number comes from activity.zone_number
             'Day': newKPI.day
           })
           .eq('id', (existingKPI as any).id)
@@ -777,7 +767,7 @@ export async function updateExistingKPIs(
       .from(TABLES.KPI)
       .select('id', { count: 'exact', head: true })
       .eq('Project Full Code', projectFullCode)
-      .eq('Activity Name', activity.activity_name)
+      .eq('Activity Description', activity.activity_description || activity.activity_name || activity.activity || '')
       .eq('Input Type', 'Planned')
     
     if (countByFullCode && countByFullCode > 0) {
@@ -789,7 +779,7 @@ export async function updateExistingKPIs(
         .select('id', { count: 'exact', head: true })
         .eq('Project Code', projectCode)
         .eq('Project Sub Code', projectSubCode)
-        .eq('Activity Name', activity.activity_name)
+        .eq('Activity Description', activity.activity_description || activity.activity_name || activity.activity || '')
         .eq('Input Type', 'Planned')
       
       if (countByCodeAndSub && countByCodeAndSub > 0) {
@@ -800,7 +790,7 @@ export async function updateExistingKPIs(
           .from(TABLES.KPI)
           .select('id', { count: 'exact', head: true })
           .eq('Project Code', projectCode)
-          .eq('Activity Name', activity.activity_name)
+          .eq('Activity Description', activity.activity_description || activity.activity_name || activity.activity || '')
           .eq('Input Type', 'Planned')
         
         if (countByCode) {
@@ -813,7 +803,7 @@ export async function updateExistingKPIs(
         .from(TABLES.KPI)
         .select('id', { count: 'exact', head: true })
         .eq('Project Code', projectCode)
-        .eq('Activity Name', activity.activity_name)
+        .eq('Activity Description', activity.activity_description || activity.activity_name || activity.activity || '')
         .eq('Input Type', 'Planned')
       
       if (countByCode) {
@@ -839,7 +829,7 @@ export async function updateExistingKPIs(
           .from(TABLES.KPI)
           .select('id')
           .eq('Project Full Code', projectFullCode)
-          .eq('Activity Name', activity.activity_name)
+          .eq('Activity Description', activity.activity_description || activity.activity_name || activity.activity || '')
           .eq('Input Type', 'Planned')
           .order('Activity Date', { ascending: true })
           .range(newCount, finalCount - 1) // Get the extra KPIs (after the first newCount)

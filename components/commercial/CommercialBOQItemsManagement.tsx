@@ -61,6 +61,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   // Adding new row state
   const [isAddingNew, setIsAddingNew] = useState(false)
   const [newBOQItemData, setNewBOQItemData] = useState<Partial<CommercialBOQItem>>({
+    external_ref_no: '',
     project_full_code: '',
     project_name: '',
     item_description: '',
@@ -339,6 +340,12 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           auto_generated_unique_reference_number: getValue([
             'Auto Generated Unique Reference Number',
             'auto_generated_unique_reference_number'
+          ]) || '',
+          external_ref_no: getValue([
+            'External Ref no.',
+            'external_ref_no',
+            'External Ref No.',
+            'external_ref_number'
           ]) || '',
           project_full_code: getValue([
             'Project Full Code',
@@ -694,6 +701,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       const searchLower = filters.search.toLowerCase()
       filtered = filtered.filter(item =>
         item.auto_generated_unique_reference_number.toLowerCase().includes(searchLower) ||
+        (item.external_ref_no && item.external_ref_no.toLowerCase().includes(searchLower)) ||
         item.project_full_code.toLowerCase().includes(searchLower) ||
         item.project_name.toLowerCase().includes(searchLower) ||
         item.item_description.toLowerCase().includes(searchLower) ||
@@ -879,6 +887,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       const totalIncludingVariations = totalValue + variationsAmount
       
       const insertData: any = {
+        'External Ref no.': newBOQItemData.external_ref_no || '',
         'Project Full Code': newBOQItemData.project_full_code,
         'Project Name': newBOQItemData.project_name,
         'Item Description': newBOQItemData.item_description.trim(),
@@ -906,6 +915,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       setSuccess('BOQ item created successfully')
       setIsAddingNew(false)
       setNewBOQItemData({
+        external_ref_no: '',
         project_full_code: '',
         project_name: '',
         item_description: '',
@@ -934,6 +944,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
     if (isAddingNew) {
       setIsAddingNew(false)
       setNewBOQItemData({
+        external_ref_no: '',
         project_full_code: '',
         project_name: '',
         item_description: '',
@@ -964,6 +975,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       const totalIncludingVariations = totalValue + variationsAmount
       
       const updateData: any = {
+        'External Ref no.': editingData.external_ref_no || '',
         'Project Full Code': editingData.project_full_code,
         'Project Name': editingData.project_name,
         'Item Description': editingData.item_description,
@@ -2097,6 +2109,12 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                   </th>
                   <th 
                     className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => handleSort('external_ref_no')}
+                  >
+                    External Ref no. {sortColumn === 'external_ref_no' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('project_full_code')}
                   >
                     Project {sortColumn === 'project_full_code' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -2159,6 +2177,14 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                     )}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 italic">
                       (New)
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <Input
+                        value={newBOQItemData.external_ref_no || ''}
+                        onChange={(e) => setNewBOQItemData({ ...newBOQItemData, external_ref_no: e.target.value })}
+                        className="w-full"
+                        placeholder="External Ref no."
+                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                       <select
@@ -2293,7 +2319,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                 )}
                 {paginatedItems.length === 0 && !isAddingNew ? (
                   <tr>
-                    <td colSpan={isSelectMode ? 17 : 16} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={isSelectMode ? 18 : 17} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
                       No BOQ items found
                     </td>
                   </tr>
@@ -2338,6 +2364,18 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                         </td>
                       )}
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{item.auto_generated_unique_reference_number}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                        {isEditing ? (
+                          <Input
+                            value={editingData.external_ref_no || ''}
+                            onChange={(e) => setEditingData({ ...editingData, external_ref_no: e.target.value })}
+                            className="w-full"
+                            placeholder="External Ref no."
+                          />
+                        ) : (
+                          item.external_ref_no || '-'
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <select

@@ -394,7 +394,8 @@ export function formatReportForExport(report: WorkReport) {
       'Delayed Activities': report.delayedActivities
     },
     activities: report.activities.map(a => ({
-      'Activity Name': a.activity_name,
+      'Activity Description': a.activity_description || a.activity_name || '',
+      'Activity Name': a.activity_description || a.activity_name || '', // Backward compatibility
       'Project': a.project_code,
       'Planned': a.planned_units,
       'Actual': a.actual_units,

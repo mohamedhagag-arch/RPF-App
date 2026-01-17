@@ -319,11 +319,17 @@ export function mapBOQFromDB(row: any): any {
     return Number.isFinite(parsed) ? parsed : 0
   }
   
-  // Extract activity name from Activity field or Zone Ref
-  // Handle both old and new database formats
-  const activityName = row['Activity Name'] || row['Activity'] || 
-                       (row['Zone Ref'] ? row['Zone Ref'].split('‣')[1]?.trim() : '') || 
-                       row['activity_name'] || row['activity'] || ''
+  // Extract activity description (merged from Activity and Activity Name)
+  // Priority: Activity Description > Activity > Activity Name > Zone Ref > fallback
+  // Handle both old and new database formats for backward compatibility
+  const activityDescription = row['Activity Description'] || 
+                              row['Activity'] || 
+                              row['Activity Name'] || 
+                              (row['Zone Ref'] ? row['Zone Ref'].split('‣')[1]?.trim() : '') || 
+                              row['activity_description'] || 
+                              row['activity_name'] || 
+                              row['activity'] || 
+                              ''
   
   // Normalize project codes - handle both old and new formats
   const projectCode = (row['Project Code'] || row['project_code'] || '').toString().trim()
@@ -393,7 +399,7 @@ export function mapBOQFromDB(row: any): any {
   // ✅ PERFORMANCE: Reduced logging frequency to prevent console spam
   if (process.env.NODE_ENV === 'development' && (projectCode.includes('P9999') || projectCode.includes('9999') || Math.random() < 0.0001)) {
     console.log('🔍 mapBOQFromDB - Project Full Code:', {
-      activityName: activityName,
+      activityDescription: activityDescription,
       projectCode,
       projectSubCode,
       projectFullCodeFromDB: projectFullCodeFromDB || 'NOT IN DB',
@@ -409,11 +415,10 @@ export function mapBOQFromDB(row: any): any {
     project_code: projectCode,
     project_sub_code: projectSubCode,
     project_full_code: projectFullCode || projectCode,
-    activity: row['Activity'] || '',
+    activity_description: activityDescription, // ✅ Merged from Activity and Activity Name
     activity_division: row['Activity Division'] || '',
     unit: row['Unit'] || '',
     zone_number: row['Zone Number'] || row['Zone #'] || '0',
-    activity_name: activityName,
     total_units: parseNum(row['Total Units']),
     // ✅ Use new column names only
     planned_units: parseNum(row['Planned Units']),
@@ -461,11 +466,10 @@ export function mapBOQToDB(boq: any): any {
     'Project Code': boq.project_code,
     'Project Sub Code': boq.project_sub_code,
     'Project Full Code': boq.project_full_code,
-    'Activity': boq.activity,
+    'Activity Description': boq.activity_description || boq.activity || boq.activity_name || '', // ✅ Merged column (prefer Activity Description)
     'Activity Division': boq.activity_division,
     'Unit': boq.unit,
     'Zone Number': boq.zone_number || '0',
-    'Activity Name': boq.activity_name,
     // ✅ Removed Column 44 and Column 45 - use new column names only
     'Total Units': boq.total_units?.toString(),
     'Planned Units': boq.planned_units?.toString(),
@@ -652,34 +656,44 @@ export function mapKPIFromDB(row: any): any {
     projectFullCode = projectCode
   }
   
-  // ✅ FIX: Try multiple sources for Activity Name
-  const activityName = (
-    row['Activity Name'] || 
+  // ✅ Extract Activity Description (merged from Activity Name and Activity in KPI table)
+  // Priority: Activity Description > Activity Name > Activity > fallback
+  // Activity Name is preferred over Activity (as per user requirement)
+  const activityDescription = (
+    row['Activity Description'] || // ✅ Merged column (preferred)
+    row['Activity Name'] || // ✅ Activity Name preferred over Activity
     row['Activity'] || 
+    row.activity_description || 
     row.activity_name || 
     row.activity ||
+    (row as any)?.raw?.['Activity Description'] ||
     (row as any)?.raw?.['Activity Name'] ||
     (row as any)?.raw?.['Activity'] ||
     ''
   ).toString().trim()
+  
+  // Keep activityName for backward compatibility
+  const activityName = activityDescription
 
   // ✅ DEBUG: Log KPIs with missing data (first 10 only to avoid spam)
-  if (!activityName || !projectFullCode) {
+  if (!activityDescription || !projectFullCode) {
     const logCount = (globalThis as any).__kpiMissingDataLogCount || 0
     if (logCount < 10) {
       (globalThis as any).__kpiMissingDataLogCount = logCount + 1
       console.warn('⚠️ KPI with missing data:', {
         id: row.id,
-        hasActivityName: !!activityName,
-        activityName: activityName || 'MISSING',
+        hasActivityDescription: !!activityDescription,
+        activityDescription: activityDescription || 'MISSING',
         hasProjectCode: !!projectCode,
         projectCode: projectCode || 'MISSING',
         hasProjectFullCode: !!projectFullCode,
         projectFullCode: projectFullCode || 'MISSING',
         rawRowKeys: Object.keys(row).slice(0, 20), // First 20 keys
-        activityNameSources: {
+        activityDescriptionSources: {
+          'Activity Description': row['Activity Description'],
           'Activity Name': row['Activity Name'],
           'Activity': row['Activity'],
+          activity_description: row.activity_description,
           activity_name: row.activity_name,
           activity: row.activity
         },
@@ -700,10 +714,11 @@ export function mapKPIFromDB(row: any): any {
     project_full_code: projectFullCode || projectCode || 'N/A',
     project_code: projectCode || 'N/A',
     project_sub_code: projectSubCode,
-    activity_name: activityName || 'N/A',
-    activity: activityName || 'N/A',
+    activity_description: activityDescription || 'N/A', // ✅ Merged column (preferred)
+    activity_name: activityDescription || 'N/A', // ✅ Backward compatibility
+    activity: activityDescription || 'N/A', // ✅ Backward compatibility
     activity_division: row['Activity Division'] || '', // ✅ Activity Division field
-    kpi_name: activityName || 'N/A', // Using activity name as KPI name
+    kpi_name: activityDescription || 'N/A', // Using activity description as KPI name
     quantity: quantity,
     input_type: inputType,
     section: row['Section'] || '',
@@ -762,13 +777,15 @@ export function mapKPIFromDB(row: any): any {
  * Note: Don't include 'Input Type' - it's determined by the table (Planned or Actual)
  */
 export function mapKPIToDB(kpi: any): any {
+  // Get activity description (merged column) with fallbacks for backward compatibility
+  const activityDescription = kpi.activity_description || kpi.activity_name || kpi.activity || ''
+  
   return {
     'Project Full Code': kpi.project_full_code,
     'Project Code': kpi.project_code,
     'Project Sub Code': kpi.project_sub_code,
-    'Activity Name': kpi.activity_name,
+    'Activity Description': activityDescription, // ✅ Merged column (preferred)
     'Activity Division': kpi.activity_division || '', // ✅ Division field
-    'Activity': kpi.activity || kpi.activity_name,
     'Quantity': kpi.quantity?.toString(),
     // ✅ Section and Zone are separate fields
     'Section': kpi.section || '',

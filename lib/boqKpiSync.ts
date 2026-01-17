@@ -33,13 +33,13 @@ export async function syncBOQFromKPI(
         .select('*')
         .eq('Input Type', 'Planned')
         .eq('Project Full Code', projectCode)
-        .eq('Activity Name', activityName),
+        .eq('Activity Description', activityName),
       supabase
         .from(TABLES.KPI)
       .select('*')
       .eq('Input Type', 'Actual')
       .eq('Project Full Code', projectCode)
-      .eq('Activity Name', activityName)
+      .eq('Activity Description', activityName)
     ])
     
     if (plannedResult.error) throw plannedResult.error
@@ -71,7 +71,7 @@ export async function syncBOQFromKPI(
     let { data: boqActivities, error: boqFindError } = await supabase
       .from(TABLES.BOQ_ACTIVITIES)
       .select('*')
-      .eq('Activity Name', activityName)
+      .eq('Activity Description', activityName)
       .or(`Project Code.eq.${projectCode},Project Full Code.eq.${projectCode}`)
     
     if (boqFindError) throw boqFindError
@@ -166,7 +166,7 @@ export async function getKPIContext(
       .from(TABLES.BOQ_ACTIVITIES)
       .select('*')
       .eq('Project Code', projectCode)
-      .eq('Activity Name', activityName)
+      .eq('Activity Description', activityName)
       .single()
     
     // Get KPI records from both tables
@@ -176,13 +176,13 @@ export async function getKPIContext(
         .select('*')
         .eq('Input Type', 'Planned')
         .eq('Project Full Code', projectCode)
-        .eq('Activity Name', activityName),
+        .eq('Activity Description', activityName),
       supabase
         .from(TABLES.KPI) // ✅ From main KPI table
         .select('*')
         .eq('Input Type', 'Actual')
         .eq('Project Full Code', projectCode)
-        .eq('Activity Name', activityName)
+        .eq('Activity Description', activityName)
     ])
     
     const kpiPlanned = (plannedResult.data || []).map(mapKPIFromDB)
@@ -252,16 +252,16 @@ export async function calculateActualFromKPI(
     // Try exact match first
     let { data: kpiActual, error } = await supabase
       .from(TABLES.KPI)
-      .select('Quantity, "Activity Name"')
+      .select('Quantity, "Activity Description"')
       .eq('Input Type', 'Actual')
       .eq('Project Full Code', projectCode)
-      .eq('Activity Name', activityName)
+      .eq('Activity Description', activityName)
     
     // If no exact match, try flexible match
     if (!kpiActual || kpiActual.length === 0) {
       const { data: allProjectKPIs } = await supabase
         .from(TABLES.KPI)
-        .select('Quantity, "Activity Name"')
+        .select('Quantity, "Activity Description"')
         .eq('Input Type', 'Actual')
         .eq('Project Full Code', projectCode)
       
@@ -311,16 +311,16 @@ export async function calculatePlannedFromKPI(
     // Try exact match first
     let { data: kpiPlanned, error } = await supabase
       .from(TABLES.KPI)
-      .select('Quantity, "Activity Name"')
+      .select('Quantity, "Activity Description"')
       .eq('Input Type', 'Planned')
       .eq('Project Full Code', projectCode)
-      .eq('Activity Name', activityName)
+      .eq('Activity Description', activityName)
     
     // If no exact match, try flexible match
     if (!kpiPlanned || kpiPlanned.length === 0) {
       const { data: allProjectKPIs } = await supabase
         .from(TABLES.KPI)
-        .select('Quantity, "Activity Name"')
+        .select('Quantity, "Activity Description"')
         .eq('Input Type', 'Planned')
         .eq('Project Full Code', projectCode)
       
@@ -372,7 +372,7 @@ export async function validateKPIQuantity(
       .from(TABLES.BOQ_ACTIVITIES)
       .select('*')
       .eq('Project Code', projectCode)
-      .eq('Activity Name', activityName)
+      .eq('Activity Description', activityName)
       .single()
     
     if (!boqData) {
@@ -393,7 +393,7 @@ export async function validateKPIQuantity(
       .select('*')
       .eq('Input Type', 'Actual')
       .eq('Project Full Code', projectCode)
-      .eq('Activity Name', activityName)
+      .eq('Activity Description', activityName)
     
     const currentKPITotal = (kpiData || []).reduce((sum, record) => {
       return sum + parseFloat(record['Quantity'] || '0')

@@ -479,7 +479,7 @@ class KPINotificationService {
       console.log('📋 Fetching pending KPIs from Planning Database - KPI...')
       const { data: pendingKPIs, error: kpiError } = await this.supabase
         .from('Planning Database - KPI')
-        .select('id, "Project Code", "Project Full Code", "Activity Name", "Quantity", "Input Type", "Approval Status", created_at')
+        .select('id, "Project Code", "Project Full Code", "Activity Description", "Quantity", "Input Type", "Approval Status", created_at')
         .eq('Input Type', 'Actual')
         .or('Approval Status.is.null,Approval Status.eq.,Approval Status.neq.approved')
 
@@ -566,7 +566,7 @@ class KPINotificationService {
           continue
         }
 
-        const title = `KPI Needs Approval - ${kpi['Activity Name'] || 'Activity'}`
+        const title = `KPI Needs Approval - ${kpi['Activity Description'] || kpi['Activity Name'] || 'Activity'}`
         const message = `A ${kpi['Input Type'] || 'Actual'} KPI for project ${kpi['Project Code'] || kpi['Project Full Code'] || 'N/A'} needs your approval`
 
         // Check for each recipient
@@ -588,7 +588,7 @@ class KPINotificationService {
             message,
             metadata: {
               project_code: kpi['Project Code'] || kpi['Project Full Code'],
-              activity_name: kpi['Activity Name'],
+              activity_name: kpi['Activity Description'] || kpi['Activity Name'] || '',
               quantity: kpi['Quantity'],
               input_type: kpi['Input Type'],
               approval_status: kpi['Approval Status'] || 'pending'

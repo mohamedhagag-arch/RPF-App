@@ -118,16 +118,11 @@ export class KPIDataMapper {
                   record.actual_date || 
                   record['ACTUAL DATE'] || '',
       
-      // Zone fields - Support multiple variations and clean values
-      zone_ref: this.cleanZoneValue(
-        record['Zone Ref'] || 
-        record['Zone'] || 
-        record.zone_ref || 
-        record['ZONE'] || ''
-      ),
+      // Zone fields - Use only Zone Number (merged from Zone and Zone Number)
       zone_number: record['Zone Number'] || 
                   record.zone_number || 
-                  record['ZONE NUMBER'] || '',
+                  record['ZONE NUMBER'] || 
+                  '0',
       
       // Keep original record for debugging
       ...record
@@ -259,15 +254,15 @@ export class KPIDataMapper {
       'Project Code': data.projectCode,
       'Project Sub Code': data.projectSubCode || '',
       'Project Full Name': data.projectName || '',
-      'Activity Name': data.activityName,
+      'Activity Description': data.activityName,
+      'Activity Name': data.activityName, // Backward compatibility
       'Activity Division': data.activityDivision || '',
       'Quantity': data.quantity,
       'Unit': data.unit,
       'Input Type': data.inputType,
       'Target Date': data.targetDate || '',
       'Actual Date': data.actualDate || '',
-      'Zone Ref': data.zoneRef || '',
-      'Zone Number': data.zoneNumber || ''
+      'Zone Number': data.zoneNumber || '0'
     }
   }
 

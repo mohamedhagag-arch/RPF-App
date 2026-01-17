@@ -329,7 +329,7 @@ export default function UserProfilePage() {
       } else if (activities) {
         setCurrentActivities(activities.map((a: any) => ({
           id: a.id || a['Activity ID'],
-          activity_name: a['Activity Name'] || a.activity_name || a.activity,
+          activity_name: a['Activity Description'] || a['Activity Name'] || a.activity_description || a.activity_name || a.activity || '',
           project_name: a['Project Name'] || a.project_full_name || a.project_name,
           activity_status: a['Activity Status'] || a.activity_actual_status || 'in_progress',
           progress: a['Progress Percentage'] || a.activity_progress_percentage || 0,

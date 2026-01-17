@@ -30,12 +30,11 @@ export const BOQ_COLUMN_MAP = {
   project_code: 'Project Code',
   project_sub_code: 'Project Sub Code',
   project_full_code: 'Project Full Code',
-  activity: 'Activity',
+  activity_description: 'Activity Description', // ✅ Merged from Activity and Activity Name
   activity_division: 'Activity Division',
   unit: 'Unit',
   zone_ref: 'Zone Ref',
   zone_number: 'Zone #',
-  activity_name: 'Activity Name',
   total_units: 'Total Units',
   planned_units: 'Planned Units',
   actual_units: 'Actual Units',
@@ -122,18 +121,26 @@ export function mapProjectToDB(project: Partial<Project>): any {
 export function mapDBToBOQActivity(dbRow: any): BOQActivity {
   if (!dbRow) return dbRow
   
+  // Extract activity description (merged from Activity and Activity Name)
+  // Priority: Activity Description > Activity > Activity Name (for backward compatibility)
+  const activityDescription = dbRow['Activity Description'] || 
+                              dbRow['Activity'] || 
+                              dbRow['Activity Name'] || 
+                              dbRow['activity_description'] || 
+                              dbRow['activity'] || 
+                              dbRow['activity_name'] || 
+                              ''
+  
   return {
     id: dbRow['id'] || dbRow['ID'],
     project_id: dbRow['project_id'] || '',
     project_code: dbRow['Project Code'] || dbRow['project_code'] || '',
     project_sub_code: dbRow['Project Sub Code'] || dbRow['project_sub_code'] || '',
     project_full_code: dbRow['Project Full Code'] || dbRow['project_full_code'] || '',
-    activity: dbRow['Activity'] || dbRow['activity'] || '',
+    activity_description: activityDescription, // ✅ Merged column
     activity_division: dbRow['Activity Division'] || dbRow['activity_division'] || '',
     unit: dbRow['Unit'] || dbRow['unit'] || '',
-    zone_ref: dbRow['Zone Ref'] || dbRow['zone_ref'] || '',
-    zone_number: dbRow['Zone #'] || dbRow['zone_number'] || '',
-    activity_name: dbRow['Activity Name'] || dbRow['activity_name'] || '',
+    zone_number: dbRow['Zone #'] || dbRow['Zone Number'] || dbRow['zone_number'] || '0',
     total_units: parseFloat(dbRow['Total Units'] || dbRow['total_units'] || 0),
     planned_units: parseFloat(dbRow['Planned Units'] || dbRow['planned_units'] || 0),
     actual_units: parseFloat(dbRow['Actual Units'] || dbRow['actual_units'] || 0),
@@ -183,12 +190,10 @@ export function mapBOQActivityToDB(activity: Partial<BOQActivity>): any {
     'Project Code': activity.project_code,
     'Project Sub Code': activity.project_sub_code,
     'Project Full Code': activity.project_full_code,
-    'Activity': activity.activity,
+    'Activity Description': activity.activity_description || '', // ✅ Merged column
     'Activity Division': activity.activity_division,
     'Unit': activity.unit,
-    'Zone Ref': activity.zone_ref,
-    'Zone #': activity.zone_number,
-    'Activity Name': activity.activity_name,
+    'Zone #': activity.zone_number || '0',
     'Total Units': activity.total_units,
     'Planned Units': activity.planned_units,
     'Actual Units': activity.actual_units,

@@ -60,7 +60,7 @@ export class KPIConsistencyManager {
       activity_date: this.ensureString(normalized.activity_date || record['Activity Date'] || ''),
       
       // Zone fields
-      zone_number: this.ensureString(normalized.zone_number || record['Zone Number'] || record['Zone'] || '0'),
+      zone_number: this.ensureString(normalized.zone_number || record['Zone Number'] || '0'),
       
       // Timestamps
       created_at: this.ensureString(record.created_at || new Date().toISOString()),
@@ -173,7 +173,7 @@ export class KPIConsistencyManager {
       'Project Code': data.projectCode,
       'Project Sub Code': data.projectSubCode || '',
       // ❌ Removed 'Project Full Name' - not a column in unified KPI table
-      'Activity Name': data.activityName,
+      'Activity Description': data.activityName, // ✅ Use Activity Description (merged from Activity and Activity Name)
       // ❌ Removed 'Activity Division' - not a column in unified KPI table
       'Quantity': data.quantity.toString(),
       'Unit': data.unit,
@@ -181,21 +181,8 @@ export class KPIConsistencyManager {
       // ✅ Section and Zone are separate fields
       // Section should be empty for auto-created KPIs (only filled by site engineer in Actual KPIs)
       'Section': '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
-      // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
-      'Zone': (() => {
-        const projectFullCode = data.projectCode || ''
-        const activityZone = data.zoneNumber || '0'
-        if (activityZone && projectFullCode) {
-          // If zone already contains project code, use it as is
-          if (activityZone.includes(projectFullCode)) {
-            return activityZone
-          }
-          // Otherwise, format as: full code + zone
-          return `${projectFullCode}-${activityZone}`
-        }
-        return activityZone || ''
-      })(),
-      'Zone Number': data.zoneNumber || '', // ✅ Zone Number is separate field
+      // ✅ Zone Number is the unified zone field (merged from Zone and Zone Number)
+      'Zone Number': data.zoneNumber || '0',
       // ❌ Removed 'Zone Ref' - not a column in unified KPI table
       'Activity Date': String(activityDate).split('T')[0] // ✅ Unified date field (DATE type, YYYY-MM-DD format, default if empty)
     }

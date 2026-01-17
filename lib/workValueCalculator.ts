@@ -213,12 +213,12 @@ function getPlannedKPIValue(kpi: any, allActivities: any[], project: Project): n
   
   // ✅ PRIORITY 2: Calculate from Quantity × Rate (if Value is not available or equals quantity)
   if (quantity > 0 && allActivities.length > 0) {
-    const kpiActivityName = (kpi.activity_name || rawKpi['Activity Name'] || '').toLowerCase().trim()
+    const kpiActivityName = (kpi.activity_description || rawKpi['Activity Description'] || kpi.activity_name || rawKpi['Activity Name'] || kpi.activity || rawKpi['Activity'] || '').toLowerCase().trim()
     const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
     const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
     
-    // Extract KPI Zone
-    const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+    // Extract KPI Zone Number
+    const kpiZoneRaw = (rawKpi['Zone Number'] || (kpi as any).zone_number || kpi.zone || rawKpi['Zone'] || '0').toString().trim()
     let kpiZone = kpiZoneRaw.toLowerCase().trim()
     if (kpiZone && kpiProjectCode) {
       const projectCodeUpper = kpiProjectCode.toUpperCase()
@@ -235,10 +235,10 @@ function getPlannedKPIValue(kpi: any, allActivities: any[], project: Project): n
     if (kpiActivityName && kpiProjectFullCode && kpiZone) {
       relatedActivity = allActivities.find((activity: any) => {
         if (!matchesProject(activity, project)) return false
-        const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+        const activityName = (activity.activity_description || activity.activity_name || activity['Activity Description'] || activity['Activity Name'] || activity.activity || '').toLowerCase().trim()
         const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
         const rawActivity = (activity as any).raw || {}
-        const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+        const activityZone = (activity.zone_number || rawActivity['Zone Number'] || '0').toString().toLowerCase().trim()
         return activityName === kpiActivityName && 
                activityProjectFullCode === kpiProjectFullCode &&
                (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
@@ -249,7 +249,7 @@ function getPlannedKPIValue(kpi: any, allActivities: any[], project: Project): n
     if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
       relatedActivity = allActivities.find((activity: any) => {
         if (!matchesProject(activity, project)) return false
-        const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+        const activityName = (activity.activity_description || activity.activity_name || activity['Activity Description'] || activity['Activity Name'] || activity.activity || '').toLowerCase().trim()
         const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
         return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
       })
@@ -259,10 +259,10 @@ function getPlannedKPIValue(kpi: any, allActivities: any[], project: Project): n
     if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
       relatedActivity = allActivities.find((activity: any) => {
         if (!matchesProject(activity, project)) return false
-        const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+        const activityName = (activity.activity_description || activity.activity_name || activity['Activity Description'] || activity['Activity Name'] || activity.activity || '').toLowerCase().trim()
         const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
         const rawActivity = (activity as any).raw || {}
-        const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+        const activityZone = (activity.zone_number || rawActivity['Zone Number'] || '0').toString().toLowerCase().trim()
         return activityName === kpiActivityName && 
                activityProjectCode === kpiProjectCode &&
                (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
@@ -273,7 +273,7 @@ function getPlannedKPIValue(kpi: any, allActivities: any[], project: Project): n
     if (!relatedActivity && kpiActivityName && kpiProjectCode) {
       relatedActivity = allActivities.find((activity: any) => {
         if (!matchesProject(activity, project)) return false
-        const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+        const activityName = (activity.activity_description || activity.activity_name || activity['Activity Description'] || activity['Activity Name'] || activity.activity || '').toLowerCase().trim()
         const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
         return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
       })
@@ -283,7 +283,7 @@ function getPlannedKPIValue(kpi: any, allActivities: any[], project: Project): n
     if (!relatedActivity && kpiActivityName) {
       relatedActivity = allActivities.find((activity: any) => {
         if (!matchesProject(activity, project)) return false
-        const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+        const activityName = (activity.activity_description || activity.activity_name || activity['Activity Description'] || activity['Activity Name'] || activity.activity || '').toLowerCase().trim()
         return activityName === kpiActivityName
       })
     }

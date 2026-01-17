@@ -699,8 +699,8 @@ export function EnhancedSmartActualKPIForm({
     if (!projectMatch) return false
     
     // 2. Activity Name Matching (STRICT - exact match only, case-insensitive)
-    const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
-    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+    const kpiActivityName = (kpi.activity_description || kpi['Activity Description'] || kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
+    const activityName = (activity.activity_description || activity.activity_name || activity.activity || '').toLowerCase().trim()
     // ✅ CRITICAL FIX: Use EXACT match only (case-insensitive) to prevent matching different activities
     const activityMatch = kpiActivityName && activityName && kpiActivityName === activityName
     if (!activityMatch) {
@@ -932,24 +932,25 @@ export function EnhancedSmartActualKPIForm({
       const matchedActualKPIs = actualKPIs.filter((kpi: any) => {
         const matches = kpiMatchesActivityStrict(kpi, activity)
         if (!matches) {
-          const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
-          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-          const kpiZone = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
-          console.log(`❌ [getActivityQuantities] KPI excluded:`, {
-            kpiId: kpi.id,
-            kpiActivity: kpiActivityName,
-            targetActivity: activityName,
-            kpiZone: kpiZone || 'NONE',
-            activityZone: normalizedActivityZone || 'NONE',
-            zoneForMatching: zoneForMatching || 'NONE',
-            projectFullCode: kpi['Project Full Code'] || kpi.project_full_code
-          })
+          // Commented out verbose debug logs for expected mismatches
+          // const kpiActivityName = (kpi.activity_description || kpi['Activity Description'] || kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
+          // const activityName = (activity.activity_description || activity.activity_name || activity.activity || '').toLowerCase().trim()
+          // const kpiZone = (kpi['Zone Number'] || kpi['Zone'] || '').toString().trim()
+          // console.log(`❌ [getActivityQuantities] KPI excluded:`, {
+          //   kpiId: kpi.id,
+          //   kpiActivity: kpiActivityName,
+          //   targetActivity: activityName,
+          //   kpiZone: kpiZone || 'NONE',
+          //   activityZone: normalizedActivityZone || 'NONE',
+          //   zoneForMatching: zoneForMatching || 'NONE',
+          //   projectFullCode: kpi['Project Full Code'] || kpi.project_full_code
+          // })
         } else {
           // Log successful matches for debugging
-          const kpiZone = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
+          const kpiZone = (kpi['Zone Number'] || kpi['Zone'] || '').toString().trim()
           console.log(`✅ [getActivityQuantities] KPI matched:`, {
             kpiId: kpi.id,
-            kpiActivity: kpi['Activity Name'] || kpi.activity_name,
+            kpiActivity: kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name,
             kpiZone: kpiZone || 'NONE',
             activityZone: normalizedActivityZone || 'NONE',
             quantity: getKPIQuantity(kpi)
@@ -958,26 +959,28 @@ export function EnhancedSmartActualKPIForm({
         return matches
       })
       
-      console.log(`📊 [getActivityQuantities] Activity: "${activity.activity_name}" (Zone: ${normalizedActivityZone || 'NONE'})`, {
+      const activityDisplayName = activity.activity_description || activity.activity_name || activity.activity || ''
+      console.log(`📊 [getActivityQuantities] Activity: "${activityDisplayName}" (Zone: ${normalizedActivityZone || 'NONE'})`, {
         totalActualKPIs: actualKPIs.length,
         matchedActualKPIs: matchedActualKPIs.length,
         matchedKPIs: matchedActualKPIs.map((kpi: any) => ({
           id: kpi.id,
-          activityName: kpi['Activity Name'] || kpi.activity_name,
+          activityName: kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name,
           quantity: getKPIQuantity(kpi),
           projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
-          zone: kpi['Zone'] || kpi['Zone Number'] || 'NONE'
+          zone: kpi['Zone Number'] || kpi['Zone'] || 'NONE'
         }))
       })
       
       const actualKPIsUntilYesterday = matchedActualKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
       done = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
         const qty = getKPIQuantity(kpi)
-        console.log(`  ✅ [getActivityQuantities] KPI ${kpi.id}: +${qty} (Activity: "${kpi['Activity Name'] || kpi.activity_name}")`)
+        const kpiActivityName = kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || ''
+        console.log(`  ✅ [getActivityQuantities] KPI ${kpi.id}: +${qty} (Activity: "${kpiActivityName}")`)
         return sum + qty
       }, 0)
       
-      console.log(`📊 [getActivityQuantities] Activity: "${activity.activity_name}" - Done from DB: ${done} (from ${actualKPIsUntilYesterday.length} KPIs)`)
+      console.log(`📊 [getActivityQuantities] Activity: "${activityDisplayName}" - Done from DB: ${done} (from ${actualKPIsUntilYesterday.length} KPIs)`)
     } else {
       // Fallback to cached actualQuantities or activity.actual_units
       done = actualQuantities.get(activity.id) ?? 0
@@ -1044,7 +1047,7 @@ export function EnhancedSmartActualKPIForm({
           // ✅ Fetch Actual KPIs - MUST match Project Full Code exactly
           let query = supabase
             .from(TABLES.KPI)
-            .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code"')
+            .select('id, "Quantity", "Input Type", "Zone Number", "Activity Description", "Project Full Code", "Project Code"')
             .eq('Input Type', 'Actual')
           
           // ✅ CRITICAL: Filter by Project Full Code ONLY (exact match required)
@@ -1076,7 +1079,7 @@ export function EnhancedSmartActualKPIForm({
             }
             
             // 2. Activity Name Match (STRICT - exact match only, case-insensitive)
-            const kpiActivityName = (kpi['Activity Name'] || kpi.activity_name || '').toLowerCase().trim()
+            const kpiActivityName = (kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || '').toLowerCase().trim()
             const activityNameMatch = kpiActivityName && activityName && kpiActivityName === activityName
             if (!activityNameMatch) {
               return false
@@ -1152,7 +1155,7 @@ export function EnhancedSmartActualKPIForm({
         // Fetch all KPIs (Planned and Actual) for this project
         let query = supabase
           .from(TABLES.KPI)
-          .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code", "Date", "Activity Date", created_at, input_type, quantity, date, activity_date, project_code, project_full_code, activity_name')
+          .select('id, "Quantity", "Input Type", "Zone Number", "Activity Description", "Project Full Code", "Project Code", "Activity Date"')
         
         // Filter by Project Full Code if available
         if (projectFullCode) {
@@ -1226,17 +1229,19 @@ export function EnhancedSmartActualKPIForm({
   }
 
   const handleActivitySelect = (activity: BOQActivity) => {
-    console.log('🔍 handleActivitySelect called with:', activity.activity_name)
+    const activityDisplayName = activity.activity_description || activity.activity_name || activity.activity || ''
+    console.log('🔍 handleActivitySelect called with:', activityDisplayName)
     setSelectedActivity(activity)
     setSection('') // ✅ Section is separate from Zone - leave empty for user input
     setUnit(activity.unit || '') // ✅ Auto-fill Unit from activity
     setCurrentStep('form')
     setCurrentActivityIndex(projectActivities.findIndex(a => a.id === activity.id))
-    console.log('✅ Activity selected:', activity.activity_name, 'Current step set to:', 'form')
+    console.log('✅ Activity selected:', activityDisplayName, 'Current step set to:', 'form')
   }
 
   const handleEditCompletedActivity = (activity: BOQActivity) => {
-    console.log('🔧 Editing completed activity:', activity.activity_name)
+    const activityDisplayName = activity.activity_description || activity.activity_name || activity.activity || ''
+    console.log('🔧 Editing completed activity:', activityDisplayName)
     setSelectedActivity(activity)
     
     // ✅ Load saved data if available, otherwise use activity defaults
@@ -1430,11 +1435,11 @@ export function EnhancedSmartActualKPIForm({
       return
     }
     
-    // Update the activity status
+    // Update the activity status - preserve all activity properties including activity_description
     setProjectActivities(prev => 
       prev.map(act => 
         act.id === activityId 
-          ? { ...act, hasWorkToday: hasWork }
+          ? { ...act, hasWorkToday: hasWork, activity_description: act.activity_description || activity.activity_description || act.activity_name || activity.activity_name || act.activity || activity.activity || '' }
           : act
       )
     )
@@ -1442,7 +1447,8 @@ export function EnhancedSmartActualKPIForm({
     if (hasWork) {
       console.log('✅ User said YES - showing form for activity:', activityId)
       // If user says yes, show the form for this activity
-      console.log('📝 Found activity, calling handleActivitySelect:', activity.activity_name)
+      const activityDisplayName = activity.activity_description || activity.activity_name || activity.activity || ''
+      console.log('📝 Found activity, calling handleActivitySelect:', activityDisplayName)
       handleActivitySelect(activity)
     } else {
       console.log('❌ User said NO - marking as completed without data:', activityId)
@@ -1455,7 +1461,8 @@ export function EnhancedSmartActualKPIForm({
         'Project Full Code': selectedProject?.project_full_code || selectedProject?.project_code || '',
         'Project Code': selectedProject?.project_code || '',
         'Project Sub Code': selectedProject?.project_sub_code || '',
-        'Activity Name': activity.activity_name || '',
+        'Activity Description': activity.activity_description || activity.activity_name || activity.activity || '',
+        'Activity Name': activity.activity_description || activity.activity_name || activity.activity || '', // Backward compatibility
         'Quantity': '0',
         'Unit': activity.unit || '',
         'Input Type': 'Actual',
@@ -1522,7 +1529,8 @@ export function EnhancedSmartActualKPIForm({
         'Project Full Code': selectedProject?.project_full_code || selectedProject?.project_code || formData.project_code || formData.project_full_code,
         'Project Code': selectedProject?.project_code || formData.project_code,
         'Project Sub Code': selectedProject?.project_sub_code || '',
-        'Activity Name': selectedActivity?.activity_name || formData.activity_name,
+        'Activity Description': selectedActivity?.activity_description || selectedActivity?.activity_name || selectedActivity?.activity || formData.activity_name || '',
+        'Activity Name': selectedActivity?.activity_description || selectedActivity?.activity_name || selectedActivity?.activity || formData.activity_name || '', // Backward compatibility
         'Activity Division': selectedActivity?.activity_division || formData.activity_division || '', // ✅ Division field
         'Activity Timing': selectedActivity?.activity_timing || 'post-commencement', // ✅ Activity Timing field (same as Planned)
         'Quantity': quantityValue.toString(), // Use validated quantity
@@ -1674,7 +1682,7 @@ export function EnhancedSmartActualKPIForm({
         
         if (shouldExclude) {
           console.log('⏭️ ❌ EXCLUDING activity from submission:', {
-            name: data['Activity Name'] || data.activity_name,
+            name: data['Activity Description'] || data['Activity Name'] || data.activity_description || data.activity_name || '',
             reason: isNotWorkedOn ? 'marked as not worked on' : 'has zero quantity',
             quantity: quantity,
             quantityRaw: quantityRaw,
@@ -1685,7 +1693,7 @@ export function EnhancedSmartActualKPIForm({
           })
         } else {
           console.log('✅ INCLUDING activity in submission:', {
-            name: data['Activity Name'] || data.activity_name,
+            name: data['Activity Description'] || data['Activity Name'] || data.activity_description || data.activity_name || '',
             quantity: quantity,
             quantityRaw: quantityRaw,
             quantityStr: quantityStr
@@ -1714,8 +1722,9 @@ export function EnhancedSmartActualKPIForm({
         const isNotWorkedOn = activityData.notWorkedOn === true || activityData.hasWorked === false
         const hasZeroQty = isNaN(finalQuantity) || finalQuantity === 0 || finalQuantityStr === '0' || finalQuantityStr === ''
         
+        const activityDisplayName = activityData['Activity Description'] || activityData['Activity Name'] || activityData.activity_description || activityData.activity_name || ''
         console.log('🔍 Validating activity before submit:', {
-          name: activityData['Activity Name'] || activityData.activity_name,
+          name: activityDisplayName,
           quantity: finalQuantity,
           quantityRaw: finalQuantityRaw,
           quantityStr: finalQuantityStr,
@@ -1728,7 +1737,7 @@ export function EnhancedSmartActualKPIForm({
         
         if (isNotWorkedOn || hasZeroQty) {
           console.error('🚫 BLOCKED: Attempted to submit activity that should be excluded:', {
-            name: activityData['Activity Name'] || activityData.activity_name,
+            name: activityDisplayName,
             quantity: finalQuantity,
             quantityRaw: finalQuantityRaw,
             quantityStr: finalQuantityStr,
@@ -1737,12 +1746,12 @@ export function EnhancedSmartActualKPIForm({
             fullData: activityData
           })
           // Skip this activity - do NOT submit it
-          alert(`⚠️ Skipping activity: ${activityData['Activity Name'] || activityData.activity_name}\nReason: ${isNotWorkedOn ? 'Not worked on' : 'Zero quantity'}`)
+          alert(`⚠️ Skipping activity: ${activityDisplayName}\nReason: ${isNotWorkedOn ? 'Not worked on' : 'Zero quantity'}`)
           continue
         }
         
         console.log('🚀 ✅ APPROVED: Submitting activity:', {
-          name: activityData['Activity Name'] || activityData.activity_name,
+          name: activityDisplayName,
           quantity: finalQuantity,
           quantityRaw: finalQuantityRaw,
           quantityStr: finalQuantityStr

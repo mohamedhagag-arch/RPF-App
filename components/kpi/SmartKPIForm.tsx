@@ -23,7 +23,7 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
   const guard = usePermissionGuard()
   const [formData, setFormData] = useState({
     project_full_code: '',
-    activity_name: '',
+    activity_description: '', // ✅ Use merged column
     section: '',
     zone: '',
     quantity: 0,
@@ -48,10 +48,10 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
   
   // ✅ Find selected activity using Project Full Code matching
   const selectedActivity = activities.find(a => {
-    const activityName = (a.activity_name || '').toLowerCase().trim()
-    const formActivityName = (formData.activity_name || '').toLowerCase().trim()
+    const activityDesc = (a.activity_description || (a as any).activity_name || (a as any).activity || '').toLowerCase().trim()
+    const formActivityDesc = (formData.activity_description || '').toLowerCase().trim()
     
-    if (activityName !== formActivityName) return false
+    if (activityDesc !== formActivityDesc) return false
     
     const aProjectCode = (a.project_code || '').toString().trim().toUpperCase()
     const aProjectFullCode = (a.project_full_code || a.project_code || '').toString().trim().toUpperCase()
@@ -67,9 +67,9 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
       setIsEditing(true)
       setFormData({
         project_full_code: kpi.project_full_code || '',
-        activity_name: kpi.activity_name || '',
+        activity_description: kpi.activity_description || kpi.activity_name || (kpi as any).activity || '',
         section: kpi.section || '',
-        zone: kpi.zone || '',
+        zone: kpi.zone || (kpi as any).zone_number || '',
         quantity: kpi.quantity || 0,
         input_type: kpi.input_type || 'Planned',
         drilled_meters: kpi.drilled_meters || 0,
@@ -78,7 +78,7 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
       setIsEditing(false)
       setFormData({
         project_full_code: '',
-        activity_name: '',
+        activity_description: '',
         section: '',
         zone: '',
         quantity: 0,
@@ -98,8 +98,8 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
       return
     }
 
-    if (!formData.activity_name.trim()) {
-      setError('Please enter activity name')
+    if (!formData.activity_description.trim()) {
+      setError('Please enter activity description')
       return
     }
 
@@ -200,7 +200,7 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
                 <div>
                   <span className="text-gray-600 dark:text-gray-400">Activity:</span>
                   <div className="font-medium text-gray-900 dark:text-white mt-0.5">
-                    {kpi.activity_name}
+                    {kpi.activity_description || kpi.activity_name || (kpi as any).activity || 'N/A'}
                   </div>
                 </div>
                 <div>
@@ -269,18 +269,41 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
               </select>
             </div>
 
-            {/* Activity Name */}
+            {/* Activity Description */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Activity Name <span className="text-red-500">*</span>
+                Activity Description <span className="text-red-500">*</span>
               </label>
-              <Input
-                type="text"
-                value={formData.activity_name}
-                onChange={(e) => handleChange('activity_name', e.target.value)}
-                placeholder="e.g., P311 ‣ Excavation to Final Pit ‣ 1"
+              <select
+                value={formData.activity_description}
+                onChange={(e) => handleChange('activity_description', e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
-              />
+              >
+                <option value="">Select Activity Description...</option>
+                {activities
+                  .filter(a => {
+                    const aProjectCode = (a.project_code || '').toString().trim().toUpperCase()
+                    const aProjectFullCode = (a.project_full_code || a.project_code || '').toString().trim().toUpperCase()
+                    const formCode = (formData.project_full_code || '').toString().trim().toUpperCase()
+                    return formCode && (aProjectFullCode === formCode || aProjectCode === formCode)
+                  })
+                  .map((activity) => {
+                    const activityDesc = activity.activity_description || (activity as any).activity_name || (activity as any).activity || ''
+                    const raw = (activity as any).raw || {}
+                    const displayText = activityDesc || 
+                                      activity['Activity Description'] ||
+                                      raw['Activity Description'] ||
+                                      raw['Activity Name'] ||
+                                      raw['Activity'] ||
+                                      'No description'
+                    return (
+                      <option key={activity.id} value={displayText}>
+                        {displayText}
+                      </option>
+                    )
+                  })}
+              </select>
             </div>
 
             {/* Section (Optional) */}
@@ -326,7 +349,7 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
                 />
                 
                 {/* Quantity Summary */}
-                {selectedActivity && selectedProject && formData.activity_name && formData.project_full_code && (
+                {selectedActivity && selectedProject && formData.activity_description && formData.project_full_code && (
                   <div className="mt-3">
                     <EnhancedQuantitySummary
                       selectedActivity={selectedActivity}

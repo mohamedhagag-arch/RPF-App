@@ -79,7 +79,7 @@ export async function updateProjectStatus(projectId: string): Promise<ProjectSta
       activities: activities.map((activity: any) => ({
         id: activity.id,
         activity_timing: activity.activity_timing || activity['Activity Timing'] || 'post-commencement',
-        activity_name: activity.activity_name || activity['Activity Name'] || '',
+        activity_name: activity.activity_description || activity['Activity Description'] || activity.activity_name || activity['Activity Name'] || '',
         planned_units: activity.planned_units || activity.total_units || 0,
         actual_units: activity.actual_units || 0,
         planned_activity_start_date: activity.planned_activity_start_date || activity['Planned Activity Start Date'] || undefined,
@@ -93,7 +93,7 @@ export async function updateProjectStatus(projectId: string): Promise<ProjectSta
         input_type: kpi['Input Type'] || kpi.input_type || 'Planned',
         quantity: parseFloat(String(kpi.Quantity || kpi.quantity || '0').replace(/,/g, '')) || 0,
         activity_date: kpi['Activity Date'] || kpi.activity_date || '',
-        activity_name: kpi['Activity Name'] || kpi.activity_name || undefined
+        activity_name: kpi['Activity Description'] || kpi['Activity Name'] || kpi.activity_description || kpi.activity_name || undefined
       }))
     }
     

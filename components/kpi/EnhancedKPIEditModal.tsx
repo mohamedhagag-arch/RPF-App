@@ -246,10 +246,10 @@ export function EnhancedKPIEditModal({
                   />
                 </div>
 
-                {/* Activity Name */}
+                {/* Activity Description */}
                 <div className="space-y-2">
                   <Label htmlFor="activityName" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Activity Name *
+                    Activity Description *
                   </Label>
                   <Input
                     id="activityName"

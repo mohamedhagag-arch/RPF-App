@@ -667,16 +667,16 @@ async function validateDataRelationships(tableName: string, data: any[]): Promis
       
       // التحقق من Activity Names
       const activityNamesSet = new Set(data.map(row => 
-        row['Activity Name'] || row['activity_name']
+        row['Activity Description'] || row['Activity Name'] || row['Activity'] || row['activity_description'] || row['activity_name'] || row.activity
       ).filter((x): x is string => Boolean(x)))
       const activityNames = Array.from(activityNamesSet)
       
       if (activityNames.length > 0) {
         const { data: existingActivities } = await supabase
           .from(TABLES.BOQ_ACTIVITIES)
-          .select('"Activity Name"')
+          .select('"Activity Description"')
         
-        const existingNames = new Set((existingActivities || []).map((a: any) => a['Activity Name'] as string))
+        const existingNames = new Set((existingActivities || []).map((a: any) => a['Activity Description'] || a['Activity Name'] || a['Activity'] || '' as string))
         const missingNames = activityNames.filter(name => !existingNames.has(name))
         
         if (missingNames.length > 0) {
@@ -762,7 +762,7 @@ function getCorrectColumnNames(tableName: string): string[] {
       'Project Sub Code',
       'Project Full Code',
       'Activity',
-      'Activity Name',
+      'Activity Description', // ✅ Merged from Activity Name and Activity (prefer Activity Name)
       'Activity Division',
       'Unit',
       'Zone Number',
@@ -815,15 +815,14 @@ function getCorrectColumnNames(tableName: string): string[] {
       'Project Full Code',
       'Project Code',
       'Project Sub Code',
-      'Activity Name',
-      'Activity',
+      'Activity Description', // ✅ Merged from Activity and Activity Name
       'Input Type',
       
       // ✅ Quantities (User Input)
       'Quantity',
       'Unit',
       'Section',
-      'Zone',
+      'Zone Number',
       'Drilled Meters',
       'Value',
       
@@ -955,8 +954,9 @@ function normalizeColumnNames(data: any[], tableName: string): any[] {
       'project_code': 'Project Code',
       'project_sub_code': 'Project Sub Code',
       'project_full_code': 'Project Full Code',
-      'activity': 'Activity',
-      'activity_name': 'Activity Name',
+      'activity_description': 'Activity Description', // ✅ Merged from Activity and Activity Name
+      'activity': 'Activity Description', // ✅ Backward compatibility
+      'activity_name': 'Activity Description', // ✅ Backward compatibility
       'activity_division': 'Activity Division',
       'unit': 'Unit',
       'zone_number': 'Zone Number',
@@ -1000,13 +1000,14 @@ function normalizeColumnNames(data: any[], tableName: string): any[] {
       'project_full_code': 'Project Full Code',
       'project_code': 'Project Code',
       'project_sub_code': 'Project Sub Code',
-      'activity_name': 'Activity Name',
-      'activity': 'Activity',
+      'activity_description': 'Activity Description', // ✅ Merged from Activity and Activity Name
+      'activity_name': 'Activity Description', // ✅ Backward compatibility
+      'activity': 'Activity Description', // ✅ Backward compatibility
       'input_type': 'Input Type',
       'quantity': 'Quantity',
       'unit': 'Unit',
       'section': 'Section',
-      'zone': 'Zone',
+      'zone_number': 'Zone Number',
       'drilled_meters': 'Drilled Meters',
       'value': 'Value',
       'activity_date': 'Activity Date',
@@ -1109,7 +1110,7 @@ async function runCalculationsAfterBOQImport(importedData: any[]): Promise<void>
         // If no ID, fetch from database using Project Code and Activity Name
         if (!row.id) {
           const projectCode = row['Project Code'] || row['project_code'] || row.project_code || ''
-          const activityName = row['Activity Name'] || row['Activity'] || row['activity_name'] || row.activity_name || ''
+          const activityName = row['Activity Description'] || row['Activity Name'] || row['Activity'] || row['activity_description'] || row['activity_name'] || row.activity_name || ''
           
           if (!projectCode || !activityName) {
             console.warn('⚠️ Skipping activity without Project Code or Activity Name:', { projectCode, activityName })
@@ -1121,7 +1122,7 @@ async function runCalculationsAfterBOQImport(importedData: any[]): Promise<void>
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
             .eq('Project Code', projectCode)
-            .eq('Activity Name', activityName)
+            .eq('Activity Description', activityName) // ✅ Use merged column
             .order('created_at', { ascending: false })
             .limit(1)
             .single()
@@ -1146,9 +1147,11 @@ async function runCalculationsAfterBOQImport(importedData: any[]): Promise<void>
         const result = await autoSaveActivityCalculations(activity)
         
         if (result.success) {
-          console.log(`✅ Calculated values for activity: ${activity.activity_name}`)
+          const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+          console.log(`✅ Calculated values for activity: ${activityDescription}`)
         } else {
-          console.warn(`⚠️ Calculation errors for activity ${activity.activity_name}:`, result.errors)
+          const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+          console.warn(`⚠️ Calculation errors for activity ${activityDescription}:`, result.errors)
         }
         
         // Track project for later batch update
@@ -1246,7 +1249,7 @@ async function runCalculationsAfterKPIImport(importedData: any[]): Promise<void>
         // If no ID, fetch from database using Project Full Code and Activity Name
         if (!row.id) {
           const projectFullCode = row['Project Full Code'] || row['Project Code'] || row['project_full_code'] || row['project_code'] || ''
-          const activityName = row['Activity Name'] || row['Activity'] || row['activity_name'] || row.activity_name || ''
+          const activityName = row['Activity Description'] || row['Activity Name'] || row['Activity'] || row['activity_description'] || row['activity_name'] || row.activity_name || ''
           
           if (!projectFullCode || !activityName) {
             console.warn('⚠️ Skipping KPI without Project Full Code or Activity Name:', { projectFullCode, activityName })
@@ -1258,7 +1261,7 @@ async function runCalculationsAfterKPIImport(importedData: any[]): Promise<void>
             .from(TABLES.KPI)
             .select('*')
             .eq('Project Full Code', projectFullCode)
-            .eq('Activity Name', activityName)
+            .eq('Activity Description', activityName)
             .order('created_at', { ascending: false })
             .limit(1)
             .single()
@@ -1696,8 +1699,9 @@ function getEnhancedTemplate(tableName: string): any | null {
       'Project Code': 'P5066',
       'Project Sub Code': 'I2',
       'Project Full Code': 'P5066-I2', // ✅ Added: Important for matching
-      'Activity': 'Mobilization',
-      'Activity Name': 'Mobilization',
+      'Activity Description': 'Mobilization',
+      'Activity Name': 'Mobilization', // Backward compatibility
+      'Activity': 'Mobilization', // Backward compatibility
       'Activity Division': 'Enabling Division',
       'Unit': 'Lump Sum',
       'Zone Number': '1',
@@ -1715,13 +1719,14 @@ function getEnhancedTemplate(tableName: string): any | null {
       'Project Full Code': 'P5066-I2', // ✅ Priority: Use Project Full Code
       'Project Code': 'P5066',
       'Project Sub Code': 'I2',
-      'Activity Name': 'Mobilization',
-      'Activity': 'Mobilization',
+      'Activity Description': 'Mobilization',
+      'Activity Name': 'Mobilization', // Backward compatibility
+      'Activity': 'Mobilization', // Backward compatibility
       'Input Type': 'Planned', // Required: 'Planned' or 'Actual'
       'Quantity': '1',
       'Unit': 'Lump Sum',
       'Section': 'General',
-      'Zone': 'Zone 1',
+      'Zone Number': '1',
       'Target Date': '2024-01-01',
       'Activity Date': '2024-01-01'
     },
@@ -2217,8 +2222,9 @@ function getTemplateExamples(filename: string): any[] {
         'Project Code': 'P5066',
         'Project Sub Code': 'I2',
         'Project Full Code': 'P5066-I2', // ✅ Same project, different activity
-        'Activity': 'Vibro Compaction',
-        'Activity Name': 'Vibro Compaction',
+        'Activity Description': 'Vibro Compaction',
+        'Activity Name': 'Vibro Compaction', // Backward compatibility
+        'Activity': 'Vibro Compaction', // Backward compatibility
         'Activity Division': 'Enabling Division',
         'Unit': 'No.',
         'Zone Number': '1',
@@ -2243,7 +2249,7 @@ function getTemplateExamples(filename: string): any[] {
         'Quantity': '1',
         'Unit': 'Lump Sum',
         'Section': 'General',
-        'Zone': 'Zone 1',
+        'Zone Number': '1',
         'Target Date': '2024-01-01',
         'Activity Date': '2024-01-01'
       },
@@ -2257,7 +2263,7 @@ function getTemplateExamples(filename: string): any[] {
         'Quantity': '100',
         'Unit': 'No.',
         'Section': 'Soil Improvement',
-        'Zone': 'Zone 1',
+        'Zone Number': '1',
         'Actual Date': '2024-01-20',
         'Activity Date': '2024-01-20'
       }

@@ -213,7 +213,7 @@ export async function autoSaveOnKPIUpdate(kpiRecord: KPIRecord): Promise<AutoCal
       .from(TABLES.BOQ_ACTIVITIES)
       .select('*')
       .or(`Project Code.eq.${kpiRecord.project_full_code},Project Full Code.eq.${kpiRecord.project_full_code}`)
-      .eq('Activity Name', kpiRecord.activity_name)
+      .eq('Activity Description', kpiRecord.activity_description || kpiRecord.activity_name || '')
       .single()
 
     if (activityError) {

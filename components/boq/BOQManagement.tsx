@@ -489,7 +489,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
               // will match even if Project Full Code in DB is "P10002" instead of "P10002-01"
               if (subCodeMatches || fullCodeMatches) {
                 console.log('✅ Activity matched:', {
-                  activity_name: activity.activity_name,
+                  activity_description: activity.activity_description || activity.activity_name || activity.activity || '',
                   activity_project_code: activityProjectCodeUpper,
                   activity_project_sub_code: activityProjectSubCodeUpper,
                   activity_project_full_code: activityFullCodeUpper,
@@ -552,7 +552,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             const logSelectedSubCode = logSelectedParts.slice(1).join('-').toUpperCase().trim()
             
             console.log('❌ Activity filtered out:', {
-              activity_name: activity.activity_name,
+              activity_description: activity.activity_description || activity.activity_name || activity.activity || '',
               activity_project_code: logActivityProjectCode,
               activity_project_sub_code: logActivityProjectSubCode,
               activity_project_full_code: logActivityFullCode,
@@ -569,9 +569,10 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       
       // Multi-Activity filter (Smart Filter)
       if (selectedActivities.length > 0) {
+        const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
         const matchesActivity = selectedActivities.some(activityName =>
-          activity.activity_name === activityName ||
-          activity.activity_name?.toLowerCase().includes(activityName.toLowerCase())
+          activityDescription === activityName ||
+          activityDescription?.toLowerCase().includes(activityName.toLowerCase())
         )
         if (!matchesActivity) return false
       }
@@ -670,8 +671,9 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       // Legacy search filter
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase()
+        const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
         const matchesSearch = 
-          (activity.activity_name || '').toLowerCase().includes(searchLower) ||
+          activityDescription.toLowerCase().includes(searchLower) ||
           (activity.project_code || '').toLowerCase().includes(searchLower) ||
           (activity.project_full_name || '').toLowerCase().includes(searchLower)
         if (!matchesSearch) return false
@@ -832,7 +834,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
   // ✅ Map column ID to database column name for sorting
   const getSortColumnName = (columnId: string): string | null => {
     const columnMap: Record<string, string> = {
-      'activity_details': 'Activity Name',
+      'activity_details': 'Activity Description', // ✅ Updated to use merged column
       'scope': 'Activity Scope',
       'division': 'Activity Division',
       'activity_timing': 'Activity Timing',
@@ -859,8 +861,8 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
 
       switch (columnId) {
         case 'activity_details':
-          aValue = (a.activity || a.activity_name || '').toLowerCase()
-          bValue = (b.activity || b.activity_name || '').toLowerCase()
+          aValue = (a.activity_description || a.activity_name || a.activity || '').toLowerCase()
+          bValue = (b.activity_description || b.activity_name || b.activity || '').toLowerCase()
           break
         case 'scope':
           aValue = ((a as any).raw?.['Activity Scope'] || a.activity_scope || '').toLowerCase()
@@ -1146,7 +1148,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       // ✅ DEBUG: Log sample activities after mapping
       if (mappedActivitiesRaw.length > 0) {
         console.log('📋 Sample activities after mapping (first 3):', mappedActivitiesRaw.slice(0, 3).map((a: any) => ({
-          activityName: a.activity || a.activity_name,
+          activityDescription: a.activity_description || a.activity_name || a.activity || '',
           projectFullCode: a.project_full_code,
           projectCode: a.project_code,
           projectSubCode: a.project_sub_code
@@ -1252,7 +1254,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       // ✅ DEBUG: Log filtered activities
       if (filteredActivitiesData.length > 0) {
         console.log('✅ Filtered activities (first 3):', filteredActivitiesData.slice(0, 3).map((a: any) => ({
-          activityName: a.activity || a.activity_name,
+          activityDescription: a.activity_description || a.activity_name || a.activity || '',
           projectFullCode: a.project_full_code
         })))
       }
@@ -1549,11 +1551,12 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       let filtered = mappedActivities
       if (filtersToApply.search) {
         const searchTerm = filtersToApply.search.toLowerCase()
-        filtered = mappedActivities.filter((activity: BOQActivity) => 
-          activity.activity_name?.toLowerCase().includes(searchTerm) ||
-          activity.project_code?.toLowerCase().includes(searchTerm) ||
-          activity.project_full_name?.toLowerCase().includes(searchTerm)
-        )
+        filtered = mappedActivities.filter((activity: BOQActivity) => {
+          const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+          return activityDescription.toLowerCase().includes(searchTerm) ||
+                 activity.project_code?.toLowerCase().includes(searchTerm) ||
+                 activity.project_full_name?.toLowerCase().includes(searchTerm)
+        })
         console.log('🔍 Applied search filter:', { searchTerm, results: filtered.length })
       }
       
@@ -1623,10 +1626,12 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
               }
               
               // Sync BOQ from KPIs (updates both Planned and Actual Units)
-              await syncBOQFromKPI(projectFullCode || projectCode, activity.activity_name)
+              const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+              await syncBOQFromKPI(projectFullCode || projectCode, activityDescription)
             } catch (error) {
               // Don't fail entire load if sync fails for one activity
-              console.warn(`⚠️ Failed to sync BOQ for ${activity.activity_name}:`, error)
+              const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+              console.warn(`⚠️ Failed to sync BOQ for ${activityDescription}:`, error)
             }
           })
         ).then(() => {
@@ -1885,11 +1890,12 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       let filtered = mappedActivities
       if (filters.search) {
         const searchTerm = filters.search.toLowerCase()
-        filtered = mappedActivities.filter((activity: BOQActivity) => 
-          activity.activity_name?.toLowerCase().includes(searchTerm) ||
+        filtered = mappedActivities.filter((activity: BOQActivity) => {
+          const activityDescription = activity.activity_description || activity.activity_name || activity.activity || ''
+          return activityDescription.toLowerCase().includes(searchTerm) ||
           activity.project_code?.toLowerCase().includes(searchTerm) ||
           activity.project_full_name?.toLowerCase().includes(searchTerm)
-        )
+        })
         console.log('🔍 Applied search filter:', { searchTerm, results: filtered.length })
       }
       
@@ -1915,7 +1921,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       // ✅ Debug: Show first few activities
       if (mappedActivities.length > 0) {
         console.log('📋 First few activities:', mappedActivities.slice(0, 3).map((a: BOQActivity) => ({
-          name: a.activity_name,
+          name: a.activity_description || a.activity_name || a.activity || '',
           project: a.project_code,
           division: a.activity_division
         })))
@@ -2084,7 +2090,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
         'Project Code': activityData.project_code || '',
         'Project Sub Code': activityData.project_sub_code || '',
         'Project Full Code': activityData.project_full_code || activityData.project_code || '',
-        'Activity': activityData.activity_name || '', // Column is "Activity" not "Activity Name"
+        'Activity Description': activityData.activity_description || activityData.activity_name || activityData.activity || '', // ✅ Merged column
         'Activity Division': activityData.activity_division || '', // ✅ FIX: Only use activity_division
         'Unit': activityData.unit || '',
         'Zone Number': activityData.zone_number || '0', // ✅ Zone Number (merged column)
@@ -2184,7 +2190,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
         'Project Code': activityData.project_code || '',
         'Project Sub Code': activityData.project_sub_code || '',
         'Project Full Code': activityData.project_full_code || activityData.project_code || '',
-        'Activity': activityData.activity_name || '', // Column is "Activity" not "Activity Name"
+        'Activity Description': activityData.activity_description || activityData.activity_name || activityData.activity || '', // ✅ Merged column
         'Activity Division': activityData.activity_division || '', // ✅ FIX: Only use activity_division
         'Unit': activityData.unit || '',
         'Zone Number': activityData.zone_number || '0', // ✅ Zone Number (merged column)
@@ -2328,7 +2334,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       .from(TABLES.KPI)
       .select('id')
       .eq('Project Full Code', projectFullCode)
-      .eq('Activity Name', activityToDelete.activity_name)
+      .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
       .eq('Input Type', 'Actual')
     
     if (actualKPIsByFullCode && Array.isArray(actualKPIsByFullCode) && actualKPIsByFullCode.length > 0) {
@@ -2343,7 +2349,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
           .select('id')
           .eq('Project Code', projectCode)
           .eq('Project Sub Code', projectSubCode)
-          .eq('Activity Name', activityToDelete.activity_name)
+          .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
           .eq('Input Type', 'Actual')
         
         if (actualKPIsByCodeAndSub && Array.isArray(actualKPIsByCodeAndSub) && actualKPIsByCodeAndSub.length > 0) {
@@ -2356,7 +2362,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             .from(TABLES.KPI)
             .select('id')
             .eq('Project Code', projectCode)
-            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
             .eq('Input Type', 'Actual')
           
           if (actualKPIsByCode && Array.isArray(actualKPIsByCode) && actualKPIsByCode.length > 0) {
@@ -2371,7 +2377,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
           .from(TABLES.KPI)
           .select('id')
           .eq('Project Code', projectCode)
-          .eq('Activity Name', activityToDelete.activity_name)
+          .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
           .eq('Input Type', 'Actual')
         
         if (actualKPIsByCode && Array.isArray(actualKPIsByCode) && actualKPIsByCode.length > 0) {
@@ -2434,7 +2440,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             .select('id')
             .eq('Project Code', projectCode)
             .eq('Project Sub Code', projectSubCode)
-            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
             .eq('Input Type', 'Planned')
           
           if (kpisByCodeAndSub && Array.isArray(kpisByCodeAndSub) && kpisByCodeAndSub.length > 0) {
@@ -2446,7 +2452,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
               .from(TABLES.KPI)
               .select('id')
               .eq('Project Code', projectCode)
-              .eq('Activity Name', activityToDelete.activity_name)
+              .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
               .eq('Input Type', 'Planned')
             
             if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {
@@ -2460,7 +2466,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             .from(TABLES.KPI)
             .select('id')
             .eq('Project Code', projectCode)
-            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
             .eq('Input Type', 'Planned')
           
           if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {
@@ -2572,7 +2578,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             .select('id')
             .eq('Project Code', projectCode)
             .eq('Project Sub Code', projectSubCode)
-            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
             .eq('Input Type', 'Actual')
           
           if (actualKPIsByCodeAndSub && Array.isArray(actualKPIsByCodeAndSub) && actualKPIsByCodeAndSub.length > 0) {
@@ -2584,7 +2590,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
               .from(TABLES.KPI)
               .select('id')
               .eq('Project Code', projectCode)
-              .eq('Activity Name', activityToDelete.activity_name)
+              .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
               .eq('Input Type', 'Actual')
             
             if (actualKPIsByCode && Array.isArray(actualKPIsByCode) && actualKPIsByCode.length > 0) {
@@ -2598,7 +2604,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             .from(TABLES.KPI)
             .select('id')
             .eq('Project Code', projectCode)
-            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
             .eq('Input Type', 'Actual')
           
           if (actualKPIsByCode && Array.isArray(actualKPIsByCode) && actualKPIsByCode.length > 0) {
@@ -2669,7 +2675,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
           .from(TABLES.KPI)
           .select('id')
           .eq('Project Full Code', projectFullCode)
-          .eq('Activity Name', activityToDelete.activity_name)
+          .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
           .eq('Input Type', 'Planned')
         
         if (kpisByFullCode && Array.isArray(kpisByFullCode) && kpisByFullCode.length > 0) {
@@ -2681,7 +2687,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             .select('id')
             .eq('Project Code', projectCode)
             .eq('Project Sub Code', projectSubCode)
-            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
             .eq('Input Type', 'Planned')
           
           if (kpisByCodeAndSub && Array.isArray(kpisByCodeAndSub) && kpisByCodeAndSub.length > 0) {
@@ -2692,7 +2698,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
               .from(TABLES.KPI)
               .select('id')
               .eq('Project Code', projectCode)
-              .eq('Activity Name', activityToDelete.activity_name)
+              .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
               .eq('Input Type', 'Planned')
             
             if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {
@@ -2705,7 +2711,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             .from(TABLES.KPI)
             .select('id')
             .eq('Project Code', projectCode)
-            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Activity Description', activityToDelete.activity_description || activityToDelete.activity_name || activityToDelete.activity || '')
             .eq('Input Type', 'Planned')
           
           if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {

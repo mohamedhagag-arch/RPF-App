@@ -157,6 +157,20 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [useCustomizedTable, setUseCustomizedTable] = useState(false)
   const [hasInitializedView, setHasInitializedView] = useState(false)
   
+  // ✅ Add new row state (similar to variations table)
+  const [isAddingNew, setIsAddingNew] = useState(false)
+  const [newKPIData, setNewKPIData] = useState<Partial<KPIRecord>>({
+    project_full_code: '',
+    activity_description: '',
+    input_type: 'Planned',
+    activity_date: '',
+    quantity: 0,
+    zone_number: '0',
+    unit: '',
+    section: '',
+    drilled_meters: 0,
+  })
+  
   // ✅ Tab state for "Not Submitted KPI's"
   const [activeTab, setActiveTab] = useState<'kpis' | 'not-submitted'>('kpis')
   
@@ -550,7 +564,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   // ✅ Map column ID to database column name for sorting
   const getSortColumnName = (columnId: string): string | null => {
     const columnMap: Record<string, string> = {
-      'activity_details': 'Activity Name',
+      'activity_details': 'Activity Description',
       'date': 'Activity Date',
       'input_type': 'Input Type',
       'quantities': 'Quantity',
@@ -1005,7 +1019,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             quantity: processed.quantity,
             input_type: processed.input_type,
             section: processed.section,
-            zone: processed.zone,
+            zone_number: processed.zone_number || processed.zone || '0',
             drilled_meters: processed.drilled_meters,
             unit: processed.unit,
             value: processed.value,
@@ -1164,6 +1178,166 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     await fetchKPIPage(currentPage, filterProjects, '')
   }, [fetchKPIPage, currentPage])
 
+  // ✅ Handle add new row
+  const handleAddNewRow = () => {
+    setIsAddingNew(true)
+    setNewKPIData({
+      project_full_code: '',
+      activity_description: '',
+      input_type: 'Planned',
+      activity_date: '',
+      quantity: 0,
+      zone_number: '0',
+      unit: '',
+      section: '',
+      drilled_meters: 0,
+    })
+    // Cancel any ongoing edit
+    if (editingKPI) {
+      setEditingKPI(null)
+    }
+  }
+  
+  // ✅ Handle cancel add new row
+  const handleCancelAddNew = () => {
+    setIsAddingNew(false)
+    setNewKPIData({
+      project_full_code: '',
+      activity_description: '',
+      input_type: 'Planned',
+      activity_date: '',
+      quantity: 0,
+      zone_number: '0',
+      unit: '',
+      section: '',
+      drilled_meters: 0,
+    })
+  }
+  
+  // ✅ Handle save new row
+  const handleSaveNew = async () => {
+    try {
+      setError('')
+      
+      // Validation
+      if (!newKPIData.project_full_code) {
+        setError('Please select a project')
+        return
+      }
+      
+      if (!newKPIData.activity_description) {
+        setError('Please select an activity description')
+        return
+      }
+      
+      if (!newKPIData.quantity || newKPIData.quantity <= 0) {
+        setError('Please enter a valid quantity')
+        return
+      }
+      
+      if (!newKPIData.activity_date) {
+        setError('Please enter an activity date')
+        return
+      }
+      
+      // Find selected project
+      const selectedProject = projects.find(p => 
+        p.project_full_code === newKPIData.project_full_code || 
+        p.project_code === newKPIData.project_full_code
+      )
+      
+      if (!selectedProject) {
+        setError('Selected project not found')
+        return
+      }
+      
+      // Find selected activity for rate calculation
+      const selectedActivity = activities.find((a: any) => {
+        const activityDesc = a.activity_description || 
+                           (a as any).activity_name || 
+                           (a as any).activity || 
+                           (a as any).raw?.['Activity Description'] ||
+                           (a as any).raw?.['Activity Name'] ||
+                           (a as any).raw?.['Activity'] ||
+                           ''
+        return activityDesc === newKPIData.activity_description &&
+               (a.project_code === selectedProject.project_code || 
+                a.project_full_code === selectedProject.project_full_code ||
+                a.project_code === selectedProject.project_full_code ||
+                a.project_full_code === selectedProject.project_code)
+      })
+      
+      // Calculate Value from Quantity × Rate (same as AddKPIForm)
+      let calculatedValue = newKPIData.quantity || 0
+      if (selectedActivity) {
+        let rate = 0
+        if (selectedActivity.rate && selectedActivity.rate > 0) {
+          rate = selectedActivity.rate
+        } else if (selectedActivity.total_value && selectedActivity.total_units && selectedActivity.total_units > 0) {
+          rate = selectedActivity.total_value / selectedActivity.total_units
+        }
+        
+        if (rate > 0) {
+          calculatedValue = (newKPIData.quantity || 0) * rate
+        }
+      }
+      
+      // Calculate Day from Activity Date
+      let dayValue = ''
+      if (newKPIData.activity_date) {
+        try {
+          const date = new Date(newKPIData.activity_date)
+          if (!isNaN(date.getTime())) {
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+          }
+        } catch (e) {
+          console.warn('⚠️ Could not calculate Day from date:', newKPIData.activity_date)
+        }
+      }
+      
+      // Prepare data for handleCreateKPI (same format as AddKPIForm)
+      const kpiData = {
+        'Project Full Code': selectedProject.project_full_code || selectedProject.project_code,
+        'Project Code': selectedProject.project_code,
+        'Project Sub Code': selectedProject.project_sub_code || '',
+        'Activity Description': newKPIData.activity_description,
+        'Activity Division': selectedActivity?.activity_division || '',
+        'Activity Timing': selectedActivity?.activity_timing || 'post-commencement',
+        'Quantity': (newKPIData.quantity || 0).toString(),
+        'Value': calculatedValue.toString(),
+        'Unit': newKPIData.unit || '',
+        'Input Type': newKPIData.input_type || 'Planned',
+        'Activity Date': newKPIData.activity_date,
+        'Day': dayValue,
+        'Section': newKPIData.section || '',
+        'Zone Number': newKPIData.zone_number || '0',
+        'Drilled Meters': (newKPIData.drilled_meters || 0).toString(),
+      }
+      
+      await handleCreateKPI(kpiData)
+      
+      setIsAddingNew(false)
+      setNewKPIData({
+        project_full_code: '',
+        activity_description: '',
+        input_type: 'Planned',
+        activity_date: '',
+        quantity: 0,
+        zone_number: '0',
+        unit: '',
+        section: '',
+        drilled_meters: 0,
+      })
+      
+      // Refresh data
+      await fetchKPIPage(currentPage, selectedProjects, '')
+    } catch (err: any) {
+      console.error('Error creating KPI:', err)
+      setError(err.message || 'Failed to create KPI')
+    }
+  }
+
   const handleCreateKPI = async (kpiData: any) => {
     try {
       console.log('========================================')
@@ -1175,7 +1349,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // ✅ Calculate Value from Quantity × Rate (from activity)
       const projectCode = kpiData['Project Full Code'] || kpiData.project_full_code || ''
-      const activityName = kpiData['Activity Name'] || kpiData.activity_name || ''
+      const activityName = kpiData['Activity Description'] || kpiData['Activity Name'] || kpiData.activity_description || kpiData.activity_name || ''
       const quantity = parseFloat(kpiData['Quantity'] || kpiData.quantity?.toString() || '0')
       
       let calculatedValue = kpiData['Value'] || kpiData.value || 0
@@ -1263,7 +1437,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Project Full Code': projectCode,
         'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
         'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
-        'Activity Name': activityName,
+        'Activity Description': activityName,
+        'Activity Name': activityName, // Backward compatibility
         'Activity Division': kpiData['Activity Division'] || kpiData.activity_division || '', // ✅ Division field
         'Activity Timing': kpiData['Activity Timing'] || kpiData.activity_timing || 'post-commencement', // ✅ Activity Timing field (same as Planned)
         'Quantity': quantity.toString(),
@@ -1272,15 +1447,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Activity Date': activityDateValue, // ✅ Unified Activity Date (DATE type, YYYY-MM-DD format)
         'Unit': kpiData['Unit'] || kpiData.unit || '',
         'Section': kpiData['Section'] || kpiData.section || '', // ✅ Section field (same as Planned)
-        'Zone': kpiData['Zone'] || kpiData.zone || '',
-        'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || '',
+        'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || kpiData['Zone'] || kpiData.zone || '0',
         'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Drilled Meters': kpiData['Drilled Meters'] || kpiData.drilled_meters?.toString() || '0'
       }
       
       // ✅ Get Activity Division and Zone from related activity if not provided
       const relatedActivityForData = activities.find((a: any) => 
-        (a['Activity Name'] || a.activity_name) === activityName && 
+        (a['Activity Description'] || a['Activity Name'] || a.activity_description || a.activity_name || a.activity || '') === activityName && 
         ((a['Project Code'] || a.project_code) === projectCode || (a['Project Full Code'] || a.project_full_code) === projectCode)
       )
       
@@ -1294,47 +1468,13 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           }
         }
         
-        // ✅ Copy Zone from Activity if not provided (zone_number)
-        // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
-        if (!dbData['Zone'] || dbData['Zone'] === '') {
-          const activityZone = (relatedActivityForData as any).zone_number ||
-                              (relatedActivityForData as any)['Zone Number'] ||
-                              '0'
-          if (activityZone && projectCode) {
-            // If zone already contains project code, use it as is
-            if (activityZone.includes(projectCode)) {
-              dbData['Zone'] = activityZone
-            } else {
-              // Otherwise, format as: full code + zone
-              dbData['Zone'] = `${projectCode}-${activityZone}`
-            }
-            console.log(`✅ Copied Zone from BOQ Activity: ${dbData['Zone']}`)
-          }
-        } else if (dbData['Zone'] && projectCode) {
-          // ✅ If Zone is provided by user, save it as-is (don't add project code)
-          // Only format if it's clearly incomplete (e.g., just a number like "1" or "01")
-          const zoneStr = dbData['Zone'].toString().trim()
-          // Check if zone looks like a simple number (e.g., "1", "01", "01-1") vs full format (e.g., "P8888-01-1")
-          const isSimpleZone = /^[\d-]+$/.test(zoneStr) && !zoneStr.includes(projectCode)
-          if (isSimpleZone && !zoneStr.includes(projectCode)) {
-            // Only format simple zones that don't already contain project code
-            dbData['Zone'] = `${projectCode}-${zoneStr}`
-            console.log(`✅ Formatted simple Zone with project code: ${dbData['Zone']}`)
-          } else {
-            // Zone is already formatted or user-provided, save as-is
-            console.log(`✅ Saving Zone as-is (user-provided or already formatted): ${dbData['Zone']}`)
-          }
-        }
-        
         // ✅ Copy Zone Number from Activity if not provided
-        if (!dbData['Zone Number'] || dbData['Zone Number'] === '') {
+        if (!dbData['Zone Number'] || dbData['Zone Number'] === '' || dbData['Zone Number'] === '0') {
           const activityZoneNumber = (relatedActivityForData as any).zone_number ||
                                      (relatedActivityForData as any)['Zone Number'] ||
-                                     ''
-          if (activityZoneNumber) {
-            dbData['Zone Number'] = activityZoneNumber
-            console.log(`✅ Copied Zone Number from BOQ Activity: ${dbData['Zone Number']}`)
-          }
+                                     '0'
+          dbData['Zone Number'] = activityZoneNumber
+          console.log(`✅ Copied Zone Number from BOQ Activity: ${dbData['Zone Number']}`)
         }
       }
       
@@ -1397,7 +1537,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
               id: (data as any).id,
               project_code: kpiData['Project Code'] || kpiData.project_code,
               project_full_code: kpiData['Project Full Code'] || kpiData.project_full_code,
-              activity_name: kpiData['Activity Name'] || kpiData.activity_name,
+              activity_name: kpiData['Activity Description'] || kpiData['Activity Name'] || kpiData.activity_description || kpiData.activity_name || '',
               quantity: quantity,
               input_type: inputType
             },
@@ -1415,7 +1555,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       const { syncBOQFromKPI } = await import('@/lib/boqKpiSync')
       const syncResult = await syncBOQFromKPI(
         kpiData['Project Full Code'] || kpiData.project_full_code,
-        kpiData['Activity Name'] || kpiData.activity_name
+        kpiData['Activity Description'] || kpiData['Activity Name'] || kpiData.activity_description || kpiData.activity_name || ''
       )
       console.log('✅ BOQ Sync Result:', syncResult)
       if (syncResult.success) {
@@ -1511,12 +1651,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         }
       }
       
-      // ✅ Get project code for Zone formatting
-      const projectFullCodeForZone = kpiData['Project Full Code'] || kpiData.project_full_code || kpiData['Project Code'] || kpiData.project_code || ''
-      const zoneValueFromData = (kpiData['Zone'] || kpiData.zone || '').toString().trim()
-      
-      // ✅ CRITICAL FIX: Save Zone as-is if user provided it directly
-      // Don't automatically add project code - only format when copying from activity (handled below)
+      // ✅ Get Zone Number from data (merged from Zone and Zone Number)
+      const zoneValueFromData = (kpiData['Zone Number'] || kpiData.zone_number || kpiData['Zone'] || kpiData.zone || '0').toString().trim()
       // This prevents issues like "01-1" becoming "P8888-01-01-1"
       let formattedZone = zoneValueFromData
       
@@ -1525,7 +1661,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Project Full Code': kpiData['Project Full Code'] || kpiData.project_full_code || '',
         'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
         'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
-        'Activity Name': kpiData['Activity Name'] || kpiData.activity_name || '',
+        'Activity Description': kpiData['Activity Description'] || kpiData['Activity Name'] || kpiData.activity_description || kpiData.activity_name || '',
+        'Activity Name': kpiData['Activity Description'] || kpiData['Activity Name'] || kpiData.activity_description || kpiData.activity_name || '', // Backward compatibility
         'Activity Division': kpiData['Activity Division'] || kpiData.activity_division || '', // ✅ Division field
         'Activity Timing': kpiData['Activity Timing'] || kpiData.activity_timing || 'post-commencement', // ✅ Activity Timing field (same as Planned)
         'Quantity': kpiData['Quantity'] || kpiData.quantity?.toString() || '0',
@@ -1533,47 +1670,26 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Activity Date': activityDateValue, // ✅ Unified Activity Date (DATE type, YYYY-MM-DD format)
         'Unit': kpiData['Unit'] || kpiData.unit || '',
         'Section': kpiData['Section'] || kpiData.section || '', // ✅ Section field (same as Planned)
-        'Zone': formattedZone, // ✅ Format Zone as: full code + zone
-        'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || '',
+        'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || kpiData['Zone'] || kpiData.zone || '0',
         'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Drilled Meters': kpiData['Drilled Meters'] || kpiData.drilled_meters?.toString() || '0'
       }
       
-      // ✅ Copy Zone from Activity if not provided (same logic as handleCreateKPI)
+      // ✅ Copy Zone Number from Activity if not provided (same logic as handleCreateKPI)
       const projectCode = dbData['Project Full Code'] || dbData['Project Code'] || ''
-      const activityName = dbData['Activity Name'] || ''
-      if ((!dbData['Zone'] || dbData['Zone'] === '') && projectCode && activityName) {
+      const activityName = dbData['Activity Description'] || dbData['Activity Name'] || ''
+      if ((!dbData['Zone Number'] || dbData['Zone Number'] === '' || dbData['Zone Number'] === '0') && projectCode && activityName) {
         const relatedActivityForUpdate = activities.find((a: any) => 
-          (a['Activity Name'] || a.activity_name) === activityName && 
+          (a['Activity Description'] || a['Activity Name'] || a.activity_description || a.activity_name || a.activity || '') === activityName && 
           ((a['Project Code'] || a.project_code) === projectCode || (a['Project Full Code'] || a.project_full_code) === projectCode)
         )
         
         if (relatedActivityForUpdate) {
-          const activityZone = (relatedActivityForUpdate as any).zone_number ||
-                              (relatedActivityForUpdate as any)['Zone Number'] ||
-                              '0'
-          if (activityZone && projectCode) {
-            // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
-            // If zone already contains project code, use it as is
-            if (activityZone.includes(projectCode)) {
-              dbData['Zone'] = activityZone
-            } else {
-              // Otherwise, format as: full code + zone
-              dbData['Zone'] = `${projectCode}-${activityZone}`
-            }
-            console.log(`✅ Copied Zone from BOQ Activity in update: ${dbData['Zone']}`)
-          }
-          
-          // Copy Zone Number if not provided
-          if (!dbData['Zone Number'] || dbData['Zone Number'] === '') {
-            const activityZoneNumber = (relatedActivityForUpdate as any).zone_number ||
-                                       (relatedActivityForUpdate as any)['Zone Number'] ||
-                                       ''
-            if (activityZoneNumber) {
-              dbData['Zone Number'] = activityZoneNumber
-              console.log(`✅ Copied Zone Number from BOQ Activity in update: ${dbData['Zone Number']}`)
-            }
-          }
+          const activityZoneNumber = (relatedActivityForUpdate as any).zone_number ||
+                                     (relatedActivityForUpdate as any)['Zone Number'] ||
+                                     '0'
+          dbData['Zone Number'] = activityZoneNumber
+          console.log(`✅ Copied Zone Number from BOQ Activity in update: ${dbData['Zone Number']}`)
         }
       }
       
@@ -1591,9 +1707,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         console.error('❌ Missing Project Full Code!')
         throw new Error('Project Full Code is required')
       }
-      if (!dbData['Activity Name']) {
-        console.error('❌ Missing Activity Name!')
-        throw new Error('Activity Name is required')
+      if (!dbData['Activity Description'] && !dbData['Activity Name']) {
+        console.error('❌ Missing Activity Description!')
+        throw new Error('Activity Description is required')
       }
       if (!dbData['Quantity']) {
         console.error('❌ Missing Quantity!')
@@ -1649,7 +1765,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         old_values: existingKPI,
         new_values: dbData,
         project_code: dbData['Project Full Code'],
-        activity_name: dbData['Activity Name'],
+        activity_name: dbData['Activity Description'] || dbData['Activity Name'] || '',
       })
       
       // Verify the update was successful
@@ -1694,8 +1810,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       console.log('🔍 Checking if updated data matches sent data...')
       console.log('Sent Project Full Code:', dbData['Project Full Code'])
       console.log('Database Project Full Code:', verifyData['Project Full Code'])
-      console.log('Sent Activity Name:', dbData['Activity Name'])
-      console.log('Database Activity Name:', verifyData['Activity Name'])
+      console.log('Sent Activity Description:', dbData['Activity Description'] || dbData['Activity Name'])
+      console.log('Database Activity Description:', verifyData['Activity Description'] || verifyData['Activity Name'])
       console.log('Sent Quantity:', dbData['Quantity'])
       console.log('Database Quantity:', verifyData['Quantity'])
       
@@ -1705,10 +1821,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         console.error('Database:', verifyData['Project Full Code'])
       }
       
-      if (verifyData['Activity Name'] !== dbData['Activity Name']) {
-        console.error('❌ Activity Name mismatch!')
-        console.error('Sent:', dbData['Activity Name'])
-        console.error('Database:', verifyData['Activity Name'])
+      const sentActivityDesc = dbData['Activity Description'] || dbData['Activity Name']
+      const dbActivityDesc = verifyData['Activity Description'] || verifyData['Activity Name']
+      if (dbActivityDesc !== sentActivityDesc) {
+        console.error('❌ Activity Description mismatch!')
+        console.error('Sent:', sentActivityDesc)
+        console.error('Database:', dbActivityDesc)
       }
       
       // ✅ FIX: AUTO-SYNC: Update BOQ for BOTH Planned and Actual KPIs
@@ -1907,10 +2025,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       }
       
       // ✅ Zone will be formatted per KPI in the update loop (to use each KPI's project_full_code)
-      // Don't format here - format in the individual KPI update to use correct project_full_code
-      if (updateData.zone !== undefined) {
-        // Store raw zone value - will be formatted per KPI based on its project_full_code
-        dbUpdateData['Zone'] = updateData.zone.trim()
+      // Store Zone Number (merged from Zone and Zone Number)
+      if (updateData.zone !== undefined || updateData.zoneNumber !== undefined) {
+        const zoneValue = (updateData.zoneNumber || updateData.zone || '0').toString().trim()
+        dbUpdateData['Zone Number'] = zoneValue
       }
       
       if (updateData.section !== undefined) {
@@ -2004,14 +2122,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                 const projectFullCode = existingKPI.project_full_code || ''
                 const zoneValue = updateData.zone.trim()
                 
-                // If zone doesn't already contain project_full_code, format it
-                if (projectFullCode && !zoneValue.includes(projectFullCode)) {
-                  // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
-                  kpiUpdateData['Zone'] = `${projectFullCode} - ${zoneValue}`
-                } else {
-                  // Zone already formatted or contains project code, use as-is
-                  kpiUpdateData['Zone'] = zoneValue
-                }
+                // Store Zone Number (merged from Zone and Zone Number)
+                kpiUpdateData['Zone Number'] = zoneValue || '0'
               }
             }
             
@@ -2107,14 +2219,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             const projectFullCode = kpi.project_full_code || ''
             const zoneValue = updateData.zone.trim()
             
-            // If zone doesn't already contain project_full_code, format it
-            if (projectFullCode && !zoneValue.includes(projectFullCode)) {
-              // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
-              kpiUpdateData['Zone'] = `${projectFullCode} - ${zoneValue}`
-            } else {
-              // Zone already formatted or contains project code, use as-is
-              kpiUpdateData['Zone'] = zoneValue
-            }
+            // Store Zone Number (merged from Zone and Zone Number)
+            kpiUpdateData['Zone Number'] = zoneValue || '0'
           }
           
           const updatePromise = (async () => {
@@ -2278,12 +2384,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           return raw[fieldName] || raw[fieldName.toLowerCase()] || (kpi as any)[fieldName] || (kpi as any)[fieldName.toLowerCase()] || ''
         }
         const kpiZoneRaw = (
+          getKPIField(kpi, 'Zone Number') ||
+          rawKPI['Zone Number'] ||
+          (kpi as any).zone_number ||
           kpi.zone || 
           getKPIField(kpi, 'Zone') ||
-          getKPIField(kpi, 'Zone Number') ||
           rawKPI['Zone'] || 
-          rawKPI['Zone Number'] ||
-          (kpi as any).zone_number || 
           '0'
         ).toString().trim()
         
@@ -2699,8 +2805,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     // Extract KPI info - SAME AS TABLE
     const kpiProjectCode = ((kpi as any).project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
     const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-    const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
-    const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+    const kpiActivityName = (kpi.activity_description || rawKPI['Activity Description'] || kpi.activity_name || rawKPI['Activity Name'] || kpi.activity || rawKPI['Activity'] || '').toLowerCase().trim()
+    const kpiZoneRaw = (rawKPI['Zone Number'] || (kpi as any).zone_number || kpi.zone || rawKPI['Zone'] || '0').toString().trim()
     const kpiZone = normalizeZone(kpiZoneRaw, kpiProjectCode)
     const kpiZoneNum = extractZoneNumber(kpiZone)
     
@@ -2708,8 +2814,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     let matchedActivity: any = null
     if (activities.length > 0 && kpiActivityName) {
       matchedActivity = activities.find((activity: any) => {
-        // 1. Activity Name must match
-        const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+        // 1. Activity Description must match
+        const activityName = (activity.activity_description || activity['Activity Description'] || activity.activity_name || activity['Activity Name'] || activity.activity || '').toLowerCase().trim()
         if (!activityName || (activityName !== kpiActivityName && !activityName.includes(kpiActivityName) && !kpiActivityName.includes(activityName))) {
           return false
         }
@@ -2913,9 +3019,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     const projectFullCode = (kpi.project_full_code || '').toLowerCase().trim()
     const projectCode = ((kpi as any).project_code || '').toLowerCase().trim()
     
-    // ✅ IMPROVED: Extract KPI Zone from multiple sources (same logic as KPITableWithCustomization)
+    // ✅ IMPROVED: Extract KPI Zone Number from multiple sources (same logic as KPITableWithCustomization)
     const rawKPI = ((kpi as any).raw || {})
-    const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+    const kpiZoneRaw = (rawKPI['Zone Number'] || (kpi as any).zone_number || kpi.zone || rawKPI['Zone'] || '0').toString().trim()
     // Normalize KPI zone (remove project code prefix if exists)
     let kpiZone = kpiZoneRaw.toLowerCase().trim()
     if (kpiZone && (kpi as any).project_code) {
@@ -3096,8 +3202,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Project Full Code': row['Project Full Code'] || row['project_full_code'] || row['Project Code'] || '',
         'Project Code': row['Project Code'] || row['project_code'] || '',
         'Project Sub Code': row['Project Sub Code'] || row['project_sub_code'] || '',
-        'Activity Name': row['Activity Name'] || row['activity_name'] || '',
-        'Activity': row['Activity'] || row['activity'] || '',
+        'Activity Description': row['Activity Description'] || row['Activity Name'] || row['Activity'] || row['activity_description'] || row['activity_name'] || row['activity'] || '',
+        'Activity Name': row['Activity Description'] || row['Activity Name'] || row['Activity'] || row['activity_description'] || row['activity_name'] || row['activity'] || '', // Backward compatibility
+        'Activity': row['Activity Description'] || row['Activity Name'] || row['Activity'] || row['activity_description'] || row['activity_name'] || row['activity'] || '', // Backward compatibility
         'Quantity': row['Quantity'] || row['quantity'] || '0',
         'Input Type': row['Input Type'] || row['input_type'] || 'Planned',
         'Unit': row['Unit'] || row['unit'] || '',
@@ -3146,7 +3253,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return paginated.map(kpi => ({
       'Project Full Code': kpi.project_full_code,
       'Project Code': (kpi as any).project_code || '',
-      'Activity Name': kpi.activity_name,
+      'Activity Description': kpi.activity_description || kpi.activity_name || '',
+      'Activity Name': kpi.activity_description || kpi.activity_name || '', // Backward compatibility
       'Input Type': kpi.input_type,
       'Quantity': kpi.quantity,
       'Unit': kpi.unit,
@@ -3167,8 +3275,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     'Project Full Code',
     'Project Code',
     'Project Sub Code',
-    'Activity Name',
-    'Activity',
+    'Activity Description',
+    'Activity Name', // Backward compatibility
+    'Activity', // Backward compatibility
     'Quantity',
     'Input Type',
     'Unit',
@@ -3337,7 +3446,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           <PermissionGuard permission="kpi.import">
             <ImportButton
               onImport={handleImportKPI}
-              requiredColumns={['Project Code', 'Activity Name', 'Quantity', 'Input Type']}
+              requiredColumns={['Project Code', 'Activity Description', 'Quantity', 'Input Type']}
               templateName="KPI_Records"
               templateColumns={importTemplateColumns}
               label="Import"
@@ -4158,6 +4267,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                 onSort={handleSort} // ✅ Server-side sorting
                 currentSortColumn={sortColumn} // ✅ Current sort column
                 currentSortDirection={sortDirection} // ✅ Current sort direction
+                isAddingNew={isAddingNew} // ✅ Add new row state
+                newKPIData={newKPIData} // ✅ New KPI data
+                onAddNewRow={handleAddNewRow} // ✅ Add new row handler
+                onCancelAddNew={handleCancelAddNew} // ✅ Cancel add new row handler
+                onSaveNew={handleSaveNew} // ✅ Save new row handler
+                onNewKPIDataChange={setNewKPIData} // ✅ Update new KPI data handler
               />
             ) : guard.hasAccess('kpi.view') ? (
               <OptimizedKPITable
