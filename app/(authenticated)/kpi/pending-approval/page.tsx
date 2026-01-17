@@ -43,6 +43,7 @@ interface PendingKPI {
   'Quantity'?: string
   'Unit'?: string
   'Activity Date'?: string // ✅ Unified date field (replaces Target Date)
+  'Target Date'?: string // ✅ Target Date field (old format, for backward compatibility)
   'Section'?: string
   'Zone Number'?: string
   'Value'?: string
@@ -2650,7 +2651,7 @@ export default function PendingApprovalKPIPage() {
                                 try {
                                   return new Date(activityDate).toLocaleDateString()
                                 } catch {
-                                  return targetDate || 'N/A'
+                                  return getField(kpi, 'Target Date') || activityDate || 'N/A'
                                 }
                               })()}
                             </div>
@@ -3004,7 +3005,7 @@ export default function PendingApprovalKPIPage() {
                                       try {
                                         return new Date(activityDate).toLocaleDateString()
                                       } catch {
-                                        return targetDate || 'N/A'
+                                        return getField(kpi, 'Target Date') || activityDate || 'N/A'
                                       }
                                     })()}
                                   </div>
@@ -3285,7 +3286,7 @@ export default function PendingApprovalKPIPage() {
                   </label>
                   <input
                     type="text"
-                    value={editingKPI?.zoneNumber || editingKPI?.['Zone Number'] || editingKPI?.zone || editingKPI?.['Zone'] || '0'}
+                    value={editingKPI?.['Zone Number'] || editingKPI?.zone || '0'}
                     onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, zone: e.target.value, id: editingKPI.id })}
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
                   />
