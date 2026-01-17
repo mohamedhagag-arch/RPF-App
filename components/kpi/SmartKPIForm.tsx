@@ -67,7 +67,7 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
       setIsEditing(true)
       setFormData({
         project_full_code: kpi.project_full_code || '',
-        activity_description: kpi.activity_description || kpi.activity_name || (kpi as any).activity || '',
+        activity_description: (kpi as any).activity_description || (kpi as any).activity_name || '' || kpi.activity_name || (kpi as any).activity || '',
         section: kpi.section || '',
         zone: kpi.zone || (kpi as any).zone_number || '',
         quantity: kpi.quantity || 0,
@@ -200,7 +200,7 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
                 <div>
                   <span className="text-gray-600 dark:text-gray-400">Activity:</span>
                   <div className="font-medium text-gray-900 dark:text-white mt-0.5">
-                    {kpi.activity_description || kpi.activity_name || (kpi as any).activity || 'N/A'}
+                    {(kpi as any).activity_description || (kpi as any).activity_name || (kpi as any).activity || 'N/A'}
                   </div>
                 </div>
                 <div>
@@ -292,7 +292,8 @@ export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCance
                     const activityDesc = activity.activity_description || (activity as any).activity_name || (activity as any).activity || ''
                     const raw = (activity as any).raw || {}
                     const displayText = activityDesc || 
-                                      activity['Activity Description'] ||
+                                      activity.activity_description ||
+                                      (activity as any)['Activity Description'] ||
                                       raw['Activity Description'] ||
                                       raw['Activity Name'] ||
                                       raw['Activity'] ||

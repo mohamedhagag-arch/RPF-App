@@ -700,7 +700,7 @@ export function EnhancedSmartActualKPIForm({
     
     // 2. Activity Name Matching (STRICT - exact match only, case-insensitive)
     const kpiActivityName = (kpi.activity_description || kpi['Activity Description'] || kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
-    const activityName = (activity.activity_description || activity.activity_name || activity.activity || '').toLowerCase().trim()
+    const activityName = (activity.activity_description || '').toLowerCase().trim()
     // ✅ CRITICAL FIX: Use EXACT match only (case-insensitive) to prevent matching different activities
     const activityMatch = kpiActivityName && activityName && kpiActivityName === activityName
     if (!activityMatch) {
@@ -726,7 +726,7 @@ export function EnhancedSmartActualKPIForm({
     // ✅ CRITICAL: DO NOT use Section - it's a different field!
     const kpiSection = (kpi['Section'] || kpi.section || rawKPI['Section'] || '').toString().trim()
     
-    const activityZoneRaw = (activity.zone_ref || activity.zone_number || '').toString().trim()
+    const activityZoneRaw = (activity.zone_number || '').toString().trim()
     
     // ✅ DEBUG: Log zone values to ensure we're using Zone and not Section
     if (kpiSection && kpiSection !== '' && (!kpiZoneRaw || kpiZoneRaw === '')) {
@@ -748,7 +748,7 @@ export function EnhancedSmartActualKPIForm({
       kpiZoneFinal: kpiZoneRaw || 'NONE',
       kpiSection: kpiSection || 'NONE (not used for matching)',
       activityZone: activityZoneRaw || 'NONE',
-      activityName: activity.activity_name
+      activityName: activity.activity_description
     })
     
     // ✅ CRITICAL FIX: Normalize zone values to handle edge cases
@@ -773,7 +773,7 @@ export function EnhancedSmartActualKPIForm({
       if (!normalizedKpiZone) {
         // Log for debugging P5073 issue
         console.log(`❌ [kpiMatchesActivityStrict] Zone mismatch: Activity has zone="${normalizedActivityZone}" (formatted: "${activityZoneForMatching}") but KPI has no zone`, {
-          activityName: activity.activity_name,
+          activityName: activity.activity_description,
           kpiId: kpi.id,
           kpiActivityName: kpi['Activity Name'] || kpi.activity_name,
           kpiProjectFullCode: kpi['Project Full Code'] || kpi.project_full_code
@@ -790,7 +790,7 @@ export function EnhancedSmartActualKPIForm({
       if (!zoneMatch) {
         // Log for debugging P5073 issue
         console.log(`❌ [kpiMatchesActivityStrict] Zone mismatch: Activity zone="${normalizedActivityZone}" (formatted: "${activityZoneForMatching}") vs KPI zone="${normalizedKpiZone}"`, {
-          activityName: activity.activity_name,
+          activityName: activity.activity_description,
           kpiId: kpi.id,
           kpiActivityName: kpi['Activity Name'] || kpi.activity_name,
           projectFullCode,
@@ -810,7 +810,7 @@ export function EnhancedSmartActualKPIForm({
     if (normalizedKpiZone) {
       // Activity has no zone but KPI has zone - exclude it (KPI belongs to specific zone, not this activity)
       console.log(`❌ [kpiMatchesActivityStrict] Zone mismatch: Activity has no zone but KPI has zone="${normalizedKpiZone}"`, {
-        activityName: activity.activity_name,
+        activityName: activity.activity_description,
         kpiId: kpi.id,
         kpiActivityName: kpi['Activity Name'] || kpi.activity_name
       })
@@ -905,7 +905,7 @@ export function EnhancedSmartActualKPIForm({
       })
       
       // ✅ CRITICAL: Filter KPIs to match THIS activity only (strict matching)
-      const activityZoneRaw = (activity.zone_ref || activity.zone_number || '').toString().trim()
+      const activityZoneRaw = (activity.zone_number || '').toString().trim()
       const normalizedActivityZone = activityZoneRaw && activityZoneRaw.trim() !== '' && activityZoneRaw !== '0' && activityZoneRaw !== 'Enabling Division' ? activityZoneRaw.trim() : ''
       
       // ✅ CRITICAL FIX for P5073: Format zone for matching (same as EnhancedQuantitySummary)
@@ -921,7 +921,7 @@ export function EnhancedSmartActualKPIForm({
         }
       }
       
-      console.log(`🔍 [getActivityQuantities] Filtering KPIs for activity: "${activity.activity_name}"`, {
+      console.log(`🔍 [getActivityQuantities] Filtering KPIs for activity: "${activity.activity_description}"`, {
         activityZone: normalizedActivityZone || 'NONE (project-level)',
         activityZoneRaw: activityZoneRaw || 'NONE',
         zoneForMatching: zoneForMatching || 'NONE',
@@ -959,7 +959,7 @@ export function EnhancedSmartActualKPIForm({
         return matches
       })
       
-      const activityDisplayName = activity.activity_description || activity.activity_name || activity.activity || ''
+      const activityDisplayName = activity.activity_description || ''
       console.log(`📊 [getActivityQuantities] Activity: "${activityDisplayName}" (Zone: ${normalizedActivityZone || 'NONE'})`, {
         totalActualKPIs: actualKPIs.length,
         matchedActualKPIs: matchedActualKPIs.length,
@@ -1000,7 +1000,7 @@ export function EnhancedSmartActualKPIForm({
       if (tempQuantity > 0) {
         const doneBefore = done
         done = done + tempQuantity
-        console.log(`📊 [${activity.activity_name}] Adding temp quantity: ${tempQuantity} (${doneBefore} + ${tempQuantity} = ${done})`)
+        console.log(`📊 [${activity.activity_description}] Adding temp quantity: ${tempQuantity} (${doneBefore} + ${tempQuantity} = ${done})`)
       }
     }
     
@@ -1038,8 +1038,8 @@ export function EnhancedSmartActualKPIForm({
         const supabase = getSupabaseClient()
         
         for (const activity of projectActivities) {
-          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-          const activityZoneRaw = (activity.zone_ref || activity.zone_number || '').toString().trim()
+          const activityName = (activity.activity_description || '').toLowerCase().trim()
+          const activityZoneRaw = (activity.zone_number || '').toString().trim()
           // ✅ CRITICAL: Use Project Full Code for zone normalization
           const normalizedZone = normalizeZone(activityZoneRaw, projectFullCode, projectCode)
           const zoneNumber = extractZoneNumber(normalizedZone)
@@ -1188,7 +1188,7 @@ export function EnhancedSmartActualKPIForm({
   // Auto-fill form when activity is selected
   useEffect(() => {
     if (selectedActivity) {
-      console.log('🧠 Smart Form: Activity selected:', selectedActivity.activity_name)
+      console.log('🧠 Smart Form: Activity selected:', selectedActivity.activity_description)
       
       // Auto-fill unit
       if (selectedActivity.unit) {
@@ -1229,7 +1229,7 @@ export function EnhancedSmartActualKPIForm({
   }
 
   const handleActivitySelect = (activity: BOQActivity) => {
-    const activityDisplayName = activity.activity_description || activity.activity_name || activity.activity || ''
+    const activityDisplayName = activity.activity_description || ''
     console.log('🔍 handleActivitySelect called with:', activityDisplayName)
     setSelectedActivity(activity)
     setSection('') // ✅ Section is separate from Zone - leave empty for user input
@@ -1240,7 +1240,7 @@ export function EnhancedSmartActualKPIForm({
   }
 
   const handleEditCompletedActivity = (activity: BOQActivity) => {
-    const activityDisplayName = activity.activity_description || activity.activity_name || activity.activity || ''
+    const activityDisplayName = activity.activity_description || ''
     console.log('🔧 Editing completed activity:', activityDisplayName)
     setSelectedActivity(activity)
     
@@ -1291,8 +1291,7 @@ export function EnhancedSmartActualKPIForm({
     // Search filter
     if (activitySearchTerm) {
       filtered = filtered.filter(activity =>
-        activity.activity_name?.toLowerCase().includes(activitySearchTerm.toLowerCase()) ||
-        activity.activity?.toLowerCase().includes(activitySearchTerm.toLowerCase()) ||
+        activity.activity_description?.toLowerCase().includes(activitySearchTerm.toLowerCase()) ||
         activity.activity_division?.toLowerCase().includes(activitySearchTerm.toLowerCase())
       )
     }
@@ -1300,10 +1299,11 @@ export function EnhancedSmartActualKPIForm({
     // Zone filter - use selectedZones (Set) to filter by zone_ref
     if (selectedZones.size > 0) {
       filtered = filtered.filter(activity => {
-        // Get activity zone - prefer zone_ref, fallback to zone_number or project code
-        let activityZone = (activity.zone_ref || '').toString().trim()
+        // Get activity zone - use zone_number
+        let activityZone = (activity.zone_number || '').toString().trim()
         if (!activityZone || activityZone === '0' || activityZone === 'Enabling Division') {
-          activityZone = (activity.zone_number || '').toString().trim()
+          // If no zone, create a default zone based on project code
+          activityZone = (activity.project_code || '').toString().trim()
         }
         if (!activityZone || activityZone === '0') {
           // If no zone, create a default zone based on project code
@@ -1336,14 +1336,12 @@ export function EnhancedSmartActualKPIForm({
           // Special case: if selected zone is "P5095 - 0" and activity has zone_ref matching the format
           if (selectedZoneStr.includes(' - ')) {
             const [projectFromSelected, zoneFromSelected] = selectedZoneStr.split(' - ')
-            const activityZoneRef = (activity.zone_ref || '').toString().trim()
             const activityZoneNum = (activity.zone_number || '').toString().trim()
             
-            // Match if activity zone_ref equals zone part and project matches
+            // Match if activity zone_number equals zone part and project matches
             if (activity.project_code === projectFromSelected) {
-              if (activityZoneRef === zoneFromSelected) return true
               if (activityZoneNum === zoneFromSelected) return true
-              if ((!activityZoneRef || activityZoneRef === '0') && zoneFromSelected === '0') return true
+              if ((!activityZoneNum || activityZoneNum === '0') && zoneFromSelected === '0') return true
             }
           }
           
@@ -1357,8 +1355,7 @@ export function EnhancedSmartActualKPIForm({
         beforeFilter: projectActivities.length,
         afterFilter: filtered.length,
         sampleActivities: filtered.slice(0, 3).map(a => ({
-          name: a.activity_name,
-          zone_ref: a.zone_ref,
+          name: a.activity_description,
           zone_number: a.zone_number,
           project_code: a.project_code
         }))
@@ -1388,25 +1385,14 @@ export function EnhancedSmartActualKPIForm({
     
     const zones = projectActivities
       .map(activity => {
-        // Prefer zone_ref, fallback to zone_number if zone_ref is empty or "0"
-        const zoneRef = (activity.zone_ref || '').toString().trim()
+        // Use zone_number
         const zoneNumber = (activity.zone_number || '').toString().trim()
         
         // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
         let formattedZone = ''
         
-        // If zone_ref exists and is valid, use it
-        if (zoneRef && zoneRef !== '0' && zoneRef !== 'Enabling Division') {
-          // If zone_ref already contains project code, use it as is
-          if (zoneRef.includes(projectFullCode)) {
-            formattedZone = zoneRef
-          } else if (projectFullCode) {
-            // Otherwise, format as: full code + zone
-            formattedZone = `${projectFullCode}-${zoneRef}`
-          } else {
-            formattedZone = zoneRef
-          }
-        } else if (zoneNumber && zoneNumber !== '0') {
+        // If zone_number exists and is valid, use it
+        if (zoneNumber && zoneNumber !== '0' && zoneNumber !== 'Enabling Division') {
           // If zone_number exists and is valid, combine with project full code
           if (projectFullCode) {
             formattedZone = `${projectFullCode}-${zoneNumber}`
@@ -1439,7 +1425,7 @@ export function EnhancedSmartActualKPIForm({
     setProjectActivities(prev => 
       prev.map(act => 
         act.id === activityId 
-          ? { ...act, hasWorkToday: hasWork, activity_description: act.activity_description || activity.activity_description || act.activity_name || activity.activity_name || act.activity || activity.activity || '' }
+          ? { ...act, hasWorkToday: hasWork, activity_description: act.activity_description || activity.activity_description || '' }
           : act
       )
     )
@@ -1447,7 +1433,7 @@ export function EnhancedSmartActualKPIForm({
     if (hasWork) {
       console.log('✅ User said YES - showing form for activity:', activityId)
       // If user says yes, show the form for this activity
-      const activityDisplayName = activity.activity_description || activity.activity_name || activity.activity || ''
+      const activityDisplayName = activity.activity_description || ''
       console.log('📝 Found activity, calling handleActivitySelect:', activityDisplayName)
       handleActivitySelect(activity)
     } else {
@@ -1461,15 +1447,15 @@ export function EnhancedSmartActualKPIForm({
         'Project Full Code': selectedProject?.project_full_code || selectedProject?.project_code || '',
         'Project Code': selectedProject?.project_code || '',
         'Project Sub Code': selectedProject?.project_sub_code || '',
-        'Activity Description': activity.activity_description || activity.activity_name || activity.activity || '',
-        'Activity Name': activity.activity_description || activity.activity_name || activity.activity || '', // Backward compatibility
+        'Activity Description': activity.activity_description || '',
+        'Activity Name': activity.activity_description || '', // Backward compatibility
         'Quantity': '0',
         'Unit': activity.unit || '',
         'Input Type': 'Actual',
         'Activity Date': finalDate, // ✅ Map Actual Date to Activity Date (unified field)
         'Drilled Meters': '0',
         'Section': '', // ✅ Section is completely separate from Zone - leave empty
-        'Zone': activity.zone_ref || '', // ✅ Zone comes from activity.zone_ref
+        'Zone': activity.zone_number || '', // ✅ Zone comes from activity.zone_number
         'Zone Number': activity.zone_number || '', // ✅ Zone Number comes from activity.zone_number
         'Recorded By': 'Engineer',
         'hasWorked': false, // Flag to indicate this activity was not worked on
@@ -1529,8 +1515,8 @@ export function EnhancedSmartActualKPIForm({
         'Project Full Code': selectedProject?.project_full_code || selectedProject?.project_code || formData.project_code || formData.project_full_code,
         'Project Code': selectedProject?.project_code || formData.project_code,
         'Project Sub Code': selectedProject?.project_sub_code || '',
-        'Activity Description': selectedActivity?.activity_description || selectedActivity?.activity_name || selectedActivity?.activity || formData.activity_name || '',
-        'Activity Name': selectedActivity?.activity_description || selectedActivity?.activity_name || selectedActivity?.activity || formData.activity_name || '', // Backward compatibility
+        'Activity Description': selectedActivity?.activity_description || '',
+        'Activity Name': selectedActivity?.activity_description || '', // Backward compatibility
         'Activity Division': selectedActivity?.activity_division || formData.activity_division || '', // ✅ Division field
         'Activity Timing': selectedActivity?.activity_timing || 'post-commencement', // ✅ Activity Timing field (same as Planned)
         'Quantity': quantityValue.toString(), // Use validated quantity
@@ -1544,7 +1530,7 @@ export function EnhancedSmartActualKPIForm({
         // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
         'Zone': (() => {
           const projectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || formData.project_code || formData.project_full_code || ''
-          const activityZone = selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+          const activityZone = selectedActivity?.zone_number || ''
           if (activityZone && projectFullCode) {
             // If zone already contains project code, use it as is
             if (activityZone.includes(projectFullCode)) {
@@ -2176,20 +2162,15 @@ export function EnhancedSmartActualKPIForm({
                                   {isCompleted ? 'Done' : 
                                    isCurrent ? 'Now' : 'Pending'}
                                 </span>
-                                {activity.zone_ref && activity.zone_ref !== 'Enabling Division' && (
+                                {activity.zone_number && activity.zone_number !== 'Enabling Division' && activity.zone_number !== '0' && (
                                   <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 rounded text-xs font-medium truncate max-w-[120px] sm:max-w-none">
-                                    {activity.zone_ref}
+                                    {activity.zone_number}
                                   </span>
                                 )}
                               </div>
-                              <h3 className="font-semibold text-gray-900 dark:text-white text-xs sm:text-sm truncate" title={activity.activity_name}>
-                                {activity.activity_name}
+                              <h3 className="font-semibold text-gray-900 dark:text-white text-xs sm:text-sm truncate" title={activity.activity_description}>
+                                {activity.activity_description}
                               </h3>
-                              {activity.activity && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block mt-1" title={activity.activity}>
-                                  {activity.activity}
-                                </p>
-                              )}
                             </div>
                           </div>
                           {/* ✅ Display Done and Total on the right side */}
@@ -2293,7 +2274,7 @@ export function EnhancedSmartActualKPIForm({
   // Form Step - Enhanced with Work Today Question
   if (currentStep === 'form' && selectedActivity) {
     const currentActivity = getCurrentActivity()
-    console.log('🔍 Form step - currentActivity:', currentActivity?.activity_name, 'selectedActivity:', selectedActivity?.activity_name)
+    console.log('🔍 Form step - currentActivity:', currentActivity?.activity_description, 'selectedActivity:', selectedActivity?.activity_description)
     
     return (
       <div className="smart-kpi-form w-full max-w-6xl mx-auto px-2 sm:px-4">
@@ -2461,20 +2442,15 @@ export function EnhancedSmartActualKPIForm({
                                   {isCompleted ? 'Done' : 
                                    isCurrent ? 'Now' : 'Pending'}
                                 </span>
-                                {activity.zone_ref && activity.zone_ref !== 'Enabling Division' && (
+                                {activity.zone_number && activity.zone_number !== 'Enabling Division' && activity.zone_number !== '0' && (
                                   <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 rounded text-xs font-medium truncate max-w-[120px] sm:max-w-none">
-                                    {activity.zone_ref}
+                                    {activity.zone_number}
                                   </span>
                                 )}
                               </div>
-                              <h3 className="font-semibold text-gray-900 dark:text-white text-xs sm:text-sm truncate" title={activity.activity_name}>
-                                {activity.activity_name}
+                              <h3 className="font-semibold text-gray-900 dark:text-white text-xs sm:text-sm truncate" title={activity.activity_description}>
+                                {activity.activity_description}
                               </h3>
-                              {activity.activity && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block" title={activity.activity}>
-                                  {activity.activity}
-                                </p>
-                              )}
                             </div>
                           </div>
                           {/* ✅ Display Done and Total on the right side */}
@@ -2729,10 +2705,10 @@ export function EnhancedSmartActualKPIForm({
                                       )}
                                       <div>
                                         <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                          {activity.activity_name}
+                                          {activity.activity_description}
                                         </div>
                                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                                          {activity.activity}
+                                          {activity.activity_description}
                                         </div>
                                       </div>
                                     </div>
@@ -2952,10 +2928,10 @@ export function EnhancedSmartActualKPIForm({
                 <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
                   <div className="flex-1 w-full">
                     <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-2 break-words">
-                      {currentActivity.activity_name}
+                      {currentActivity.activity_description}
                     </h3>
                     <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-3 break-words">
-                      {currentActivity.activity}
+                      {currentActivity.activity_description}
                     </p>
                     
                     {/* Activity Details Grid */}
@@ -2979,7 +2955,7 @@ export function EnhancedSmartActualKPIForm({
                         {(() => {
                           // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
                           const projectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || ''
-                          const activityZone = currentActivity.zone_ref || currentActivity.zone_number || ''
+                          const activityZone = currentActivity.zone_number || ''
                           let formattedZone = activityZone
                           
                           if (activityZone && projectFullCode && activityZone !== 'Enabling Division') {
@@ -3113,11 +3089,11 @@ export function EnhancedSmartActualKPIForm({
                   Did you work on this activity today?
                 </h3>
                 <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-4 sm:mb-6 px-2 break-words">
-                  {currentActivity.activity_name}
+                  {currentActivity.activity_description}
                   {(() => {
                     // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
                     const projectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || ''
-                    const activityZone = currentActivity.zone_ref || currentActivity.zone_number || ''
+                    const activityZone = currentActivity.zone_number || ''
                     let formattedZone = activityZone
                     
                     if (activityZone && projectFullCode && activityZone !== 'Enabling Division') {
@@ -3215,7 +3191,7 @@ export function EnhancedSmartActualKPIForm({
                             // For project P5073 and others, quantities should be calculated per zone, not for entire project
                             const projectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || ''
                             const projectCode = selectedProject?.project_code || ''
-                            const activityZone = selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+                            const activityZone = selectedActivity?.zone_number || ''
                             
                             // ✅ If activity has zone, format and pass it (for zone-specific filtering)
                             if (activityZone && activityZone.trim() !== '' && activityZone !== '0' && activityZone !== 'Enabling Division') {

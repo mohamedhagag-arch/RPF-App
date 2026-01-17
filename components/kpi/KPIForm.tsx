@@ -41,10 +41,10 @@ export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFo
         kpi_name: kpi.kpi_name || '',
         planned_value: kpi.planned_value || 0,
         actual_value: kpi.actual_value || 0,
-        target_date: kpi.target_date || '',
+        target_date: kpi.activity_date || (kpi as any).target_date || '',
         completion_date: kpi.completion_date || '',
         status: kpi.status || 'on_track',
-        zone: kpi.zone || '',
+        zone: (kpi as any).zone_number || (kpi as any).zone || '',
         notes: kpi.notes || '',
       })
     }
@@ -148,7 +148,7 @@ export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFo
                 <option value="">Select Activity</option>
                 {filteredActivities.map(activity => (
                   <option key={activity.id} value={activity.id}>
-                    {activity.activity_name} ({activity.activity})
+                    {activity.activity_description}
                   </option>
                 ))}
               </select>

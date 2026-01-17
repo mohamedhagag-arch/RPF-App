@@ -74,7 +74,7 @@ export function IntelligentKPIForm({
       // Handle both old and new column names
       const editingProjectCode = kpi['Project Full Code'] || kpi.project_full_code || ''
       setProjectCode(editingProjectCode)
-      setActivityName(kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || kpi.activity || '')
+      setActivityName(kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || (kpi as any).activity_name || (kpi as any).activity || '')
       setInputType(kpi['Input Type'] || kpi.input_type || 'Planned')
       setQuantity(kpi['Quantity']?.toString() || kpi.quantity?.toString() || '')
       setUnit(kpi['Unit'] || kpi.unit || '')
@@ -261,7 +261,7 @@ export function IntelligentKPIForm({
       
       console.log('✅ KPI data loaded:', {
         projectCode: kpi['Project Full Code'] || kpi.project_full_code,
-        activityName: kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || kpi.activity || '',
+        activityName: kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || (kpi as any).activity_name || (kpi as any).activity || '',
         inputType: kpi['Input Type'] || kpi.input_type,
         quantity: kpi['Quantity'] || kpi.quantity,
         unit: kpi['Unit'] || kpi.unit,
@@ -287,12 +287,12 @@ export function IntelligentKPIForm({
         console.log('✅ Activities loaded for editing:', projectActivities.length)
         
         // Smart auto-fill: Find and set the selected activity
-        const loadedActivityName = kpi['Activity Name'] || kpi.activity_name
+        const loadedActivityName = kpi['Activity Name'] || kpi['Activity Description'] || (kpi as any).activity_name || kpi.activity_description
         if (loadedActivityName && projectActivities.length > 0) {
-          const foundActivity = projectActivities.find(a => (a.activity_description || a.activity_name || a.activity || '') === loadedActivityName)
+          const foundActivity = projectActivities.find(a => (a.activity_description || '') === loadedActivityName)
           if (foundActivity) {
             setSelectedActivity(foundActivity)
-            console.log('🧠 Smart Form: Activity found for auto-fill:', foundActivity.activity_name)
+            console.log('🧠 Smart Form: Activity found for auto-fill:', foundActivity.activity_description)
             
             // Auto-fill smart data if it's an Actual KPI
             if (inputType === 'Actual' && foundActivity.productivity_daily_rate && foundActivity.productivity_daily_rate > 0) {
@@ -526,11 +526,11 @@ export function IntelligentKPIForm({
   // Smart auto-fill when activity is selected
   useEffect(() => {
     if (activityName && availableActivities.length > 0) {
-      const foundActivity = availableActivities.find(a => (a.activity_description || a.activity_name || a.activity || '') === activityName)
+      const foundActivity = availableActivities.find(a => (a.activity_description || '') === activityName)
       
       if (foundActivity) {
         setSelectedActivity(foundActivity)
-        console.log('🧠 Smart Form: Activity selected:', foundActivity.activity_name)
+        console.log('🧠 Smart Form: Activity selected:', foundActivity.activity_description)
         
         // Auto-fill unit
         if (foundActivity.unit) {
@@ -587,10 +587,10 @@ export function IntelligentKPIForm({
     setHasUserChangedFields(true)
     
     // Find and set the selected activity for smart auto-fill
-    const activity = availableActivities.find(a => a.activity_name === activityName)
+    const activity = availableActivities.find(a => a.activity_description === activityName)
     if (activity) {
       setSelectedActivity(activity)
-      console.log('🧠 Smart Form: Activity selected for auto-fill:', activity.activity_name)
+      console.log('🧠 Smart Form: Activity selected for auto-fill:', activity.activity_description)
       
       // Auto-fill zone information from activity
       if (activity.zone_number && activity.zone_number !== '0') {
@@ -827,7 +827,8 @@ export function IntelligentKPIForm({
         'Project Full Code': finalProjectCode, // ✅ Full code (e.g., "P8888-01")
         'Project Code': projectCodeOnly || finalProjectCode, // ✅ Base code (e.g., "P8888")
         'Project Sub Code': project?.project_sub_code || '',
-        'Activity Name': activityName || '',
+        'Activity Description': activityName || '', // ✅ Activity Description (primary field)
+        'Activity Name': activityName || '', // ✅ Backward compatibility
         'Activity Division': activityDivision, // ✅ Activity Division field (same as Planned)
         'Activity Timing': activityTiming, // ✅ Activity Timing field (same as Planned)
         'Quantity': Math.round(quantityValue * 100) / 100, // Round to 2 decimal places
@@ -1140,16 +1141,16 @@ export function IntelligentKPIForm({
                     {availableActivities
                       .filter(a => 
                         !activityName || 
-                        a.activity_name?.toLowerCase().includes(activityName.toLowerCase())
+                        a.activity_description?.toLowerCase().includes(activityName.toLowerCase())
                       )
                       .map((a, idx) => (
                         <div
                           key={`${a.id}-${idx}`}
-                          onClick={() => handleActivitySelect(a.activity_name)}
+                          onClick={() => handleActivitySelect(a.activity_description)}
                           className="px-4 py-2 hover:bg-green-50 dark:hover:bg-green-900/30 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-b-0"
                         >
                           <div className="font-medium text-gray-900 dark:text-gray-100">
-                            {a.activity_name}
+                            {a.activity_description}
                           </div>
                           <div className="text-xs text-gray-500 dark:text-gray-400">
                             {a.unit || 'No unit'} • {a.planned_units || 0} planned

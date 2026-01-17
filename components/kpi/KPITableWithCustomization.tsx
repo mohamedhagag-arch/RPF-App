@@ -25,6 +25,12 @@ interface KPITableWithCustomizationProps {
   onSort?: (columnId: string, direction: 'asc' | 'desc') => void // ✅ Server-side sorting callback
   currentSortColumn?: string | null // ✅ Current sort column from parent
   currentSortDirection?: 'asc' | 'desc' // ✅ Current sort direction from parent
+  isAddingNew?: boolean // ✅ Add new row state
+  newKPIData?: any // ✅ New KPI data
+  onAddNewRow?: () => void // ✅ Add new row handler
+  onCancelAddNew?: () => void // ✅ Cancel add new row handler
+  onSaveNew?: (data: any) => void // ✅ Save new row handler
+  onNewKPIDataChange?: (data: any) => void // ✅ New KPI data change handler
 }
 
 // Default column configuration for KPI
@@ -234,9 +240,10 @@ export function KPITableWithCustomization({
     }
     
     // Timeline Factor (25%)
-    if (kpi.target_date && kpi.actual_date) {
-      const targetDate = new Date(kpi.target_date)
-      const actualDate = new Date(kpi.actual_date)
+    // Use activity_date which is the unified date field in KPIRecord
+    if (kpi.activity_date) {
+      const targetDate = new Date(kpi.activity_date)
+      const actualDate = new Date(kpi.activity_date)
       const daysDiff = Math.ceil((actualDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24))
       
       if (daysDiff <= 0) score += 25 // On time or early
@@ -287,9 +294,10 @@ export function KPITableWithCustomization({
     }
     
     // Time Efficiency (35%)
-    if (kpi.target_date && kpi.actual_date) {
-      const targetDate = new Date(kpi.target_date)
-      const actualDate = new Date(kpi.actual_date)
+    // Use activity_date which is the unified date field in KPIRecord
+    if (kpi.activity_date) {
+      const targetDate = new Date(kpi.activity_date)
+      const actualDate = new Date(kpi.activity_date)
       const daysDiff = Math.ceil((actualDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24))
       
       if (daysDiff <= 0) efficiency += 35 // On time
@@ -325,9 +333,10 @@ export function KPITableWithCustomization({
     }
     
     // Timeline Risk (25%)
-    if (kpi.target_date && kpi.actual_date) {
-      const targetDate = new Date(kpi.target_date)
-      const actualDate = new Date(kpi.actual_date)
+    // Use activity_date which is the unified date field in KPIRecord
+    if (kpi.activity_date) {
+      const targetDate = new Date(kpi.activity_date)
+      const actualDate = new Date(kpi.activity_date)
       const daysDiff = Math.ceil((actualDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24))
       
       if (daysDiff > 90) riskScore += 25
@@ -399,9 +408,10 @@ export function KPITableWithCustomization({
     }
     
     // Timeline Insights
-    if (kpi.target_date && kpi.actual_date) {
-      const targetDate = new Date(kpi.target_date)
-      const actualDate = new Date(kpi.actual_date)
+    // Use activity_date which is the unified date field in KPIRecord
+    if (kpi.activity_date) {
+      const targetDate = new Date(kpi.activity_date)
+      const actualDate = new Date(kpi.activity_date)
       const daysDiff = Math.ceil((actualDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24))
       
       if (daysDiff > 30) {
@@ -435,9 +445,10 @@ export function KPITableWithCustomization({
     }
     
     // Timeline Recommendations
-    if (kpi.target_date && kpi.actual_date) {
-      const targetDate = new Date(kpi.target_date)
-      const actualDate = new Date(kpi.actual_date)
+    // Use activity_date which is the unified date field in KPIRecord
+    if (kpi.activity_date) {
+      const targetDate = new Date(kpi.activity_date)
+      const actualDate = new Date(kpi.activity_date)
       const daysDiff = Math.ceil((actualDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24))
       
       if (daysDiff > 14) {
@@ -526,12 +537,11 @@ export function KPITableWithCustomization({
         
         // Get Zone from multiple sources (NOT from Section - Section is separate)
         const rawKPIDetails = (kpi as any).raw || {}
-        let zoneValue = kpi.zone || 
+        let zoneValue = (kpi as any).zone_number || (kpi as any).zone || 
                        getKPIField(kpi, 'Zone') || 
                        getKPIField(kpi, 'Zone Number') ||
                        rawKPIDetails['Zone'] ||
                        rawKPIDetails['Zone Number'] ||
-                       (kpi as any).zone_ref ||
                        (kpi as any).zone_number ||
                        ''
         
@@ -571,11 +581,10 @@ export function KPITableWithCustomization({
         // Debug: Log zone extraction (only in development)
         if (process.env.NODE_ENV === 'development' && !zoneValue) {
           console.log('🔍 Zone extraction debug:', {
-            activityName: kpi.activity_name,
-            kpiZone: kpi.zone,
+            activityName: kpi.activity_description || (kpi as any).activity_name,
+            kpiZone: (kpi as any).zone_number || (kpi as any).zone,
             rawZone: rawKPIDetails['Zone'],
             rawZoneNumber: rawKPIDetails['Zone Number'],
-            zoneRef: (kpi as any).zone_ref,
             zoneNumber: (kpi as any).zone_number,
             finalZone: zoneValue
           })
@@ -618,25 +627,11 @@ export function KPITableWithCustomization({
         // Priority 1: Day column (if available and formatted)
         const dayValue = kpi.day || rawKPIDate['Day'] || ''
         
-        // Priority 2: Actual Date (for Actual KPIs) or Target Date (for Planned KPIs)
-        const actualDateValue = kpi.actual_date || rawKPIDate['Actual Date'] || ''
-        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
+        // Priority 2: Use activity_date which is the unified date field
+        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || rawKPIDate['Actual Date'] || rawKPIDate['Target Date'] || ''
         
-        // Priority 3: Activity Date
-        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
-        
-        // Determine which date to use based on Input Type
-        let dateToDisplay = ''
-        if (kpi.input_type === 'Actual' && actualDateValue) {
-          dateToDisplay = actualDateValue
-        } else if (kpi.input_type === 'Planned' && targetDateValue) {
-          dateToDisplay = targetDateValue
-        } else if (dayValue) {
-          // If Day is available, try to use it or fallback to Activity Date
-          dateToDisplay = activityDateValue || dayValue
-        } else {
-          dateToDisplay = activityDateValue || actualDateValue || targetDateValue
-        }
+        // Use activity_date as the unified date field
+        let dateToDisplay = activityDateValue || dayValue
         
         return (
           <div className="text-sm text-gray-900 dark:text-white">
@@ -730,8 +725,8 @@ export function KPITableWithCustomization({
         // Extract KPI info
         const kpiProjectCode = (kpi.project_code || rawKPIValue['Project Code'] || '').toString().trim().toUpperCase()
         const kpiProjectFullCode = (kpi.project_full_code || rawKPIValue['Project Full Code'] || '').toString().trim().toUpperCase()
-        const kpiActivityName = (kpi.activity_name || rawKPIValue['Activity Name'] || '').toLowerCase().trim()
-        const kpiZoneRaw = (kpi.zone || rawKPIValue['Zone'] || rawKPIValue['Zone Number'] || '').toString().trim()
+        const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || rawKPIValue['Activity Name'] || '').toLowerCase().trim()
+        const kpiZoneRaw = ((kpi as any).zone_number || (kpi as any).zone || rawKPIValue['Zone Number'] || rawKPIValue['Zone'] || '').toString().trim()
         const kpiZone = normalizeZone(kpiZoneRaw, kpiProjectCode)
         const kpiZoneNum = extractZoneNumber(kpiZone)
         
@@ -759,7 +754,7 @@ export function KPITableWithCustomization({
             // 3. Zone MUST match EXACTLY (if KPI has zone)
             if (kpiZone && kpiZone.trim() !== '') {
               const rawActivity = (activity as any).raw || {}
-              const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+              const activityZoneRaw = (activity.zone_number || rawActivity['Zone Number'] || '').toString().trim()
               const activityZone = normalizeZone(activityZoneRaw, activityProjectCode)
               
               if (!activityZone || activityZone.trim() === '') {
@@ -809,7 +804,7 @@ export function KPITableWithCustomization({
             const activityZone = normalizeZone(activityZoneRaw, matchedActivity.project_code || '')
             const activityZoneNum = extractZoneNumber(activityZone)
             
-            console.log(`✅ [KPI Value] Rate calculated for "${kpi.activity_name}":`, {
+            console.log(`✅ [KPI Value] Rate calculated for "${kpi.activity_description || (kpi as any).activity_name}":`, {
               kpiZone: kpiZone || 'N/A',
               kpiZoneNum: kpiZoneNum || 'N/A',
               activityZone: activityZone || 'N/A',
@@ -874,7 +869,7 @@ export function KPITableWithCustomization({
             if (rateForValue > 0) {
               console.log(`✅ [KPI Value] Final Rate found: ${rateForValue}`)
             } else {
-              console.warn(`⚠️ [KPI Value] No Rate found for "${kpi.activity_name}" (Zone: ${kpiZone || 'N/A'}):`, {
+              console.warn(`⚠️ [KPI Value] No Rate found for "${kpi.activity_description || (kpi as any).activity_name}" (Zone: ${kpiZone || 'N/A'}):`, {
                 kpiProjectCode,
                 kpiActivityName,
                 kpiZone: kpiZone || 'N/A',
@@ -931,7 +926,7 @@ export function KPITableWithCustomization({
             if (plannedValue > 0) {
               totalValue = plannedValue
               if (process.env.NODE_ENV === 'development') {
-                console.log(`✅ [KPI Value] Using Planned Value from KPI for "${kpi.activity_name}": ${plannedValue}`)
+                console.log(`✅ [KPI Value] Using Planned Value from KPI for "${kpi.activity_description || (kpi as any).activity_name}": ${plannedValue}`)
               }
             }
           } else if (kpi.input_type === 'Actual') {
@@ -939,7 +934,7 @@ export function KPITableWithCustomization({
             if (actualValue > 0) {
               totalValue = actualValue
               if (process.env.NODE_ENV === 'development') {
-                console.log(`✅ [KPI Value] Using Actual Value from KPI for "${kpi.activity_name}": ${actualValue}`)
+                console.log(`✅ [KPI Value] Using Actual Value from KPI for "${kpi.activity_description || (kpi as any).activity_name}": ${actualValue}`)
               }
             }
           }
@@ -1063,8 +1058,8 @@ export function KPITableWithCustomization({
         }
         
         // Extract KPI info
-        const kpiActivityNameVirtual = (kpi.activity_name || rawKPIVirtual['Activity Name'] || '').toLowerCase().trim()
-        const kpiZoneRawVirtual = (kpi.zone || rawKPIVirtual['Zone'] || rawKPIVirtual['Zone Number'] || '').toString().trim()
+        const kpiActivityNameVirtual = (kpi.activity_description || (kpi as any).activity_name || rawKPIVirtual['Activity Name'] || '').toLowerCase().trim()
+        const kpiZoneRawVirtual = ((kpi as any).zone_number || (kpi as any).zone || rawKPIVirtual['Zone Number'] || rawKPIVirtual['Zone'] || '').toString().trim()
         const kpiZoneVirtual = normalizeZoneVirtual(kpiZoneRawVirtual, kpiProjectCodeVirtual)
         const kpiZoneNumVirtual = extractZoneNumberVirtual(kpiZoneVirtual)
         
@@ -1093,7 +1088,7 @@ export function KPITableWithCustomization({
             // 3. Zone MUST match EXACTLY (if KPI has zone)
             if (kpiZoneVirtual && kpiZoneVirtual.trim() !== '') {
               const rawActivity = (activity as any).raw || {}
-              const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+              const activityZoneRaw = (activity.zone_number || rawActivity['Zone Number'] || '').toString().trim()
               const activityZone = normalizeZoneVirtual(activityZoneRaw, activityProjectCode)
               
               if (!activityZone || activityZone.trim() === '') {
@@ -1198,7 +1193,7 @@ export function KPITableWithCustomization({
             if (rateForVirtual > 0) {
               console.log(`✅ [KPI Virtual Value] Final Rate found: ${rateForVirtual}`)
             } else {
-              console.warn(`⚠️ [KPI Virtual Value] No Rate found for "${kpi.activity_name}" (Zone: ${kpiZoneVirtual || 'N/A'})`)
+              console.warn(`⚠️ [KPI Virtual Value] No Rate found for "${kpi.activity_description || (kpi as any).activity_name}" (Zone: ${kpiZoneVirtual || 'N/A'})`)
             }
           }
         }
@@ -1247,7 +1242,7 @@ export function KPITableWithCustomization({
             if (plannedValue > 0) {
               baseValue = plannedValue
               if (process.env.NODE_ENV === 'development') {
-                console.log(`✅ [KPI Virtual Value] Using Planned Value from KPI for "${kpi.activity_name}": ${plannedValue}`)
+                console.log(`✅ [KPI Virtual Value] Using Planned Value from KPI for "${kpi.activity_description || (kpi as any).activity_name}": ${plannedValue}`)
               }
             }
           } else if (kpi.input_type === 'Actual') {
@@ -1255,7 +1250,7 @@ export function KPITableWithCustomization({
             if (actualValue > 0) {
               baseValue = actualValue
               if (process.env.NODE_ENV === 'development') {
-                console.log(`✅ [KPI Virtual Value] Using Actual Value from KPI for "${kpi.activity_name}": ${actualValue}`)
+                console.log(`✅ [KPI Virtual Value] Using Actual Value from KPI for "${kpi.activity_description || (kpi as any).activity_name}": ${actualValue}`)
               }
             }
           }
@@ -1347,7 +1342,7 @@ export function KPITableWithCustomization({
         if (kpis.indexOf(kpi) < 3) {
           console.log('🔍 Activity Timing Debug:', {
             kpi_id: kpi.id,
-            activity_name: kpi.activity_name,
+            activity_name: kpi.activity_description || (kpi as any).activity_name,
             kpi_activity_timing: (kpi as any).activity_timing,
             raw_activity_timing: rawKPI['Activity Timing'],
             raw_activity_timing_lower: rawKPI['activity_timing'],
@@ -1358,7 +1353,7 @@ export function KPITableWithCustomization({
         
         // ✅ Try to get from related BOQ Activity ONLY if not found in KPI
         if (!activityTiming) {
-          const activityName = kpi.activity_name || (kpi as any).activity || ''
+          const activityName = kpi.activity_description || (kpi as any).activity_name || (kpi as any).activity || ''
           const projectCode = kpi.project_code || kpi.project_full_code || ''
           
           if (activityName && allActivities && allActivities.length > 0) {
@@ -1437,8 +1432,7 @@ export function KPITableWithCustomization({
         if ((activityDiv === 'N/A' || !activityDiv || activityDiv.trim() === '') && allActivities.length > 0) {
           const relatedActivityDivision = allActivities.find((activity: any) => {
             const activityNameMatch = (
-              activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
-              activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+              activity.activity_description?.toLowerCase().trim() === (kpi.activity_description || (kpi as any).activity_name)?.toLowerCase().trim()
             )
             
             const projectCodeMatch = (
@@ -1464,7 +1458,7 @@ export function KPITableWithCustomization({
         
         // Priority 3: Final fallback to other KPI fields
         if (activityDiv === 'N/A' || !activityDiv || activityDiv.trim() === '') {
-          activityDiv = kpi.activity || 
+          activityDiv = (kpi as any).activity || 
                        kpi.section || 
                        rawKPIDivision['Section'] ||
                        'N/A'
@@ -1480,7 +1474,7 @@ export function KPITableWithCustomization({
         // ✅ Get Activity Scope from project_type_activities table (Settings)
         const rawKPIScope = (kpi as any).raw || {}
         let activityScope = 'N/A'
-        const activityName = kpi.activity_name?.trim()
+        const activityName = (kpi.activity_description || (kpi as any).activity_name)?.trim()
         
         // Priority 1: Get from project_type_activities table (Settings) - cached map with flexible matching
         if (activityName && activityScopeMap.size > 0) {
@@ -1572,21 +1566,11 @@ export function KPITableWithCustomization({
         // ✅ Get date from multiple sources (same priority as date column)
         const rawKPIKeyDates = (kpi as any).raw || {}
         const dayValueKeyDates = kpi.day || rawKPIKeyDates['Day'] || ''
-        const actualDateValueKeyDates = kpi.actual_date || rawKPIKeyDates['Actual Date'] || ''
-        const targetDateValueKeyDates = kpi.target_date || rawKPIKeyDates['Target Date'] || ''
-        const activityDateValueKeyDates = kpi.activity_date || rawKPIKeyDates['Activity Date'] || ''
+        // Use activity_date which is the unified date field
+        const activityDateValueKeyDates = kpi.activity_date || rawKPIKeyDates['Activity Date'] || rawKPIKeyDates['Actual Date'] || rawKPIKeyDates['Target Date'] || ''
         
-        // Determine which date to use based on Input Type
-        let dateForParts = ''
-        if (kpi.input_type === 'Actual' && actualDateValueKeyDates) {
-          dateForParts = actualDateValueKeyDates
-        } else if (kpi.input_type === 'Planned' && targetDateValueKeyDates) {
-          dateForParts = targetDateValueKeyDates
-        } else if (dayValueKeyDates) {
-          dateForParts = activityDateValueKeyDates || dayValueKeyDates
-        } else {
-          dateForParts = activityDateValueKeyDates || actualDateValueKeyDates || targetDateValueKeyDates
-        }
+        // Use activity_date as the unified date field
+        let dateForParts = activityDateValueKeyDates || dayValueKeyDates
         
         const dateParts = getDateParts(dateForParts)
         return (
@@ -1602,7 +1586,8 @@ export function KPITableWithCustomization({
         const rawKPICumQty = (kpi as any).raw || {}
         
         // Get current KPI date and quantity
-        const currentKPIDate = kpi.actual_date || kpi.target_date || kpi.activity_date || kpi.day || ''
+        // Use activity_date which is the unified date field
+        const currentKPIDate = kpi.activity_date || kpi.day || ''
         const currentQuantity = kpi.quantity || parseFloat(String(rawKPICumQty['Quantity'] || '0').replace(/,/g, '')) || 0
         
         // Parse current KPI date
@@ -1638,7 +1623,7 @@ export function KPITableWithCustomization({
             otherKPI.project_full_code === kpi.project_full_code
           )
           const sameActivity = (
-            otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            (otherKPI.activity_description || (otherKPI as any).activity_name)?.toLowerCase().trim() === (kpi.activity_description || (kpi as any).activity_name)?.toLowerCase().trim()
           )
           const sameInputType = otherKPI.input_type === kpi.input_type
           
@@ -1736,7 +1721,8 @@ export function KPITableWithCustomization({
         const rawKPICumValue = (kpi as any).raw || {}
         
         // Get current KPI date
-        const currentKPIDateValue = kpi.actual_date || kpi.target_date || kpi.activity_date || kpi.day || ''
+        // Use activity_date which is the unified date field
+        const currentKPIDateValue = kpi.activity_date || kpi.day || ''
         
         // Parse current KPI date (reuse same function)
         const parseDateForCumulativeValue = (dateStr: string | null | undefined): Date | null => {
@@ -1769,7 +1755,7 @@ export function KPITableWithCustomization({
             otherKPI.project_full_code === kpi.project_full_code
           )
           const sameActivity = (
-            otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            (otherKPI.activity_description || (otherKPI as any).activity_name)?.toLowerCase().trim() === (kpi.activity_description || (kpi as any).activity_name)?.toLowerCase().trim()
           )
           const sameInputType = otherKPI.input_type === kpi.input_type
           
@@ -2009,9 +1995,10 @@ export function KPITableWithCustomization({
     
     switch (columnId) {
       case 'activity_details':
-        return kpi.activity_name || getKPIField('Activity Name') || ''
+        return kpi.activity_description || (kpi as any).activity_name || getKPIField('Activity Name') || ''
       case 'date':
-        const dateValue = kpi.target_date || kpi.activity_date || getKPIField('Target Date') || getKPIField('Activity Date') || ''
+        // Use activity_date which is the unified date field
+        const dateValue = kpi.activity_date || getKPIField('Activity Date') || getKPIField('Target Date') || getKPIField('Actual Date') || ''
         return dateValue ? new Date(dateValue).getTime() : 0
       case 'input_type':
         return kpi.input_type || getKPIField('Input Type') || ''
@@ -2052,7 +2039,7 @@ export function KPITableWithCustomization({
             otherKPI.project_full_code === kpi.project_full_code
           )
           const sameActivity = (
-            otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            (otherKPI.activity_description || (otherKPI as any).activity_name)?.toLowerCase().trim() === (kpi.activity_description || (kpi as any).activity_name)?.toLowerCase().trim()
           )
           const sameInputType = otherKPI.input_type === kpi.input_type
           return sameProject && sameActivity && sameInputType
@@ -2072,7 +2059,7 @@ export function KPITableWithCustomization({
             otherKPI.project_full_code === kpi.project_full_code
           )
           const sameActivity = (
-            otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            (otherKPI.activity_description || (otherKPI as any).activity_name)?.toLowerCase().trim() === (kpi.activity_description || (kpi as any).activity_name)?.toLowerCase().trim()
           )
           const sameInputType = otherKPI.input_type === kpi.input_type
           return sameProject && sameActivity && sameInputType
@@ -2105,9 +2092,10 @@ export function KPITableWithCustomization({
       
       switch (columnId) {
         case 'activity_details':
-          return kpi.activity_name || getKPIField('Activity Name') || ''
+          return kpi.activity_description || (kpi as any).activity_name || getKPIField('Activity Name') || ''
         case 'date':
-          const dateValue = kpi.target_date || kpi.activity_date || getKPIField('Target Date') || getKPIField('Activity Date') || ''
+          // Use activity_date which is the unified date field
+        const dateValue = kpi.activity_date || getKPIField('Activity Date') || getKPIField('Target Date') || getKPIField('Actual Date') || ''
           return dateValue ? new Date(dateValue).getTime() : 0
         case 'input_type':
           return kpi.input_type || getKPIField('Input Type') || ''
@@ -2148,7 +2136,7 @@ export function KPITableWithCustomization({
               otherKPI.project_full_code === kpi.project_full_code
             )
             const sameActivity = (
-              otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+              (otherKPI.activity_description || (otherKPI as any).activity_name)?.toLowerCase().trim() === (kpi.activity_description || (kpi as any).activity_name)?.toLowerCase().trim()
             )
             const sameInputType = otherKPI.input_type === kpi.input_type
             return sameProject && sameActivity && sameInputType
@@ -2168,7 +2156,7 @@ export function KPITableWithCustomization({
               otherKPI.project_full_code === kpi.project_full_code
             )
             const sameActivity = (
-              otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+              (otherKPI.activity_description || (otherKPI as any).activity_name)?.toLowerCase().trim() === (kpi.activity_description || (kpi as any).activity_name)?.toLowerCase().trim()
             )
             const sameInputType = otherKPI.input_type === kpi.input_type
             return sameProject && sameActivity && sameInputType

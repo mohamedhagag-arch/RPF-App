@@ -56,12 +56,11 @@ export function BulkEditKPIModal({
       const uniqueUnits = Array.from(new Set(selectedKPIs.map(k => k.unit).filter(Boolean)))
       // ✅ FIX: Use Zone only, NOT Section
       const uniqueZones = Array.from(new Set(selectedKPIs.map(k => 
-        k.zone || 
-        (k as any).zone_ref || 
+        (k as any).zone || 
         (k as any).zone_number || 
         (k as any).raw?.['Zone'] || 
         (k as any).raw?.['Zone Number'] || 
-        (k as any).raw?.['Zone Ref']
+        ''
       ).filter(Boolean)))
       const uniqueSections = Array.from(new Set(selectedKPIs.map(k => k.section || (k as any).raw?.['Section']).filter(Boolean)))
       const uniqueDrilledMeters = Array.from(new Set(selectedKPIs.map(k => k.drilled_meters).filter(dm => dm !== undefined && dm !== null)))
@@ -216,9 +215,8 @@ export function BulkEditKPIModal({
       
       if (fieldsToUpdate.has('zone') && zone.trim()) {
         updateData.zone = zone.trim()
-        // ✅ Also update Zone Number and Zone Ref for consistency
+        // ✅ Update Zone Number
         updateData.zone_number = zone.trim()
-        updateData.zone_ref = zone.trim()
       }
       
       if (fieldsToUpdate.has('section') && section.trim()) {

@@ -69,7 +69,7 @@ export function EnhancedKPIEditModal({
         }
       }
       
-      setTargetDate(formatDateForInput(kpi.target_date || ''))
+      setTargetDate(formatDateForInput(kpi.activity_date || (kpi as any).target_date || ''))
       setActualDate(formatDateForInput(kpi.activity_date || ''))
       setSection(kpi.section || '')
       setDay((kpi as any).day || '')

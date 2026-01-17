@@ -330,19 +330,16 @@ export function EnhancedQuantitySummary({
     if (inputType === 'planned') {
       kpiDateStr = rawKPI['Date'] ||
                   kpi.date ||
-                  kpi.target_date || 
                   kpi.activity_date || 
-                  rawKPI['Target Date'] || 
                   rawKPI['Activity Date'] ||
-                  kpi['Target Date'] || 
                   kpi['Activity Date'] ||
                   kpi.created_at ||
                   ''
     } else {
-      kpiDateStr = kpi.actual_date || 
-                  kpi.activity_date || 
+      kpiDateStr = kpi.activity_date || 
+                  kpi['Activity Date'] ||
+                  (kpi as any).actual_date || 
                   kpi['Actual Date'] || 
-                  kpi['Activity Date'] || 
                   rawKPI['Actual Date'] || 
                   rawKPI['Activity Date'] ||
                   kpi.created_at ||
@@ -382,10 +379,8 @@ export function EnhancedQuantitySummary({
       
       // ✅ Get Activity Description (EXACT match - case-insensitive)
       const activityName = (selectedActivity.activity_description || 
-                           selectedActivity['Activity Description'] ||
-                           selectedActivity.activity_name || 
-                           selectedActivity['Activity Name'] ||
-                           selectedActivity.activity || 
+                           (selectedActivity as any)['Activity Description'] ||
+                           (selectedActivity as any)['Activity Name'] ||
                            '').toLowerCase().trim() // ✅ Normalize to lowercase for consistent matching
       
       if (!activityName) {
@@ -517,7 +512,7 @@ export function EnhancedQuantitySummary({
             sampleKPIs: allKPIs.slice(0, 3).map((kpi: any) => ({
               id: kpi.id,
               inputType: kpi['Input Type'] || kpi.input_type,
-              activityName: kpi['Activity Name'] || kpi.activity_name,
+              activityName: kpi['Activity Description'] || kpi['Activity Name'] || kpi.activity_description || (kpi as any).activity_name,
               projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
               zone: kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0'
             }))
@@ -608,7 +603,7 @@ export function EnhancedQuantitySummary({
           }
           
           // 2. Activity Name Matching (EXACT same as kpiMatchesActivityStrict)
-          const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
+          const kpiActivityName = (kpi.activity_description || kpi['Activity Description'] || (kpi as any).activity_name || kpi['Activity Name'] || (kpi as any).activity || rawKPI['Activity Description'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
           const activityMatch = kpiActivityName && activityName && kpiActivityName === activityName
           if (!activityMatch) {
             if (showDebug) {
@@ -618,7 +613,7 @@ export function EnhancedQuantitySummary({
           }
           
           // 3. Zone Matching (EXACT same as kpiMatchesActivityStrict)
-          // ✅ CRITICAL FIX: Use zone prop if provided (from parent), otherwise use activity.zone_ref || activity.zone_number
+          // ✅ CRITICAL FIX: Use zone prop if provided (from parent), otherwise use activity.zone_number
           // This ensures zone-specific filtering works correctly for project P5073 and others
           // ✅ CRITICAL: Use Zone Number column ONLY, NOT Section column!
           // Zone Number is the unified zone field (merged from Zone and Zone Number)
@@ -648,7 +643,7 @@ export function EnhancedQuantitySummary({
               if (showDebug) {
                 console.log(`❌ [EnhancedQuantitySummary] Zone mismatch: Zone specified="${zoneToMatch}" but KPI has no zone`, {
                   kpiId: kpi.id,
-                  kpiActivityName: (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim(),
+                  kpiActivityName: (kpi.activity_description || kpi['Activity Description'] || (kpi as any).activity_name || kpi['Activity Name'] || '').toLowerCase().trim(),
                   kpiProjectFullCode: (kpi.project_full_code || kpi['Project Full Code'] || '').toString().trim().toUpperCase()
                 })
               }
@@ -660,7 +655,7 @@ export function EnhancedQuantitySummary({
               if (showDebug) {
                 console.log(`❌ [EnhancedQuantitySummary] Zone mismatch: Target="${zoneToMatch}" vs KPI="${kpiZoneRaw}"`, {
                   kpiId: kpi.id,
-                  kpiActivityName: (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim(),
+                  kpiActivityName: (kpi.activity_description || kpi['Activity Description'] || (kpi as any).activity_name || kpi['Activity Name'] || '').toLowerCase().trim(),
                   projectFullCode,
                   projectCode: projectCodeValue,
                   normalizedTarget: normalizeZone(zoneToMatch, projectFullCode, projectCodeValue),
@@ -689,7 +684,7 @@ export function EnhancedQuantitySummary({
             // Log why this KPI didn't match (only for first 10 KPIs to avoid spam)
             const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || '').toString().trim().toUpperCase()
             const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || '').toString().trim().toUpperCase()
-            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
+            const kpiActivityName = (kpi.activity_description || kpi['Activity Description'] || (kpi as any).activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
             const kpiZoneRaw = (kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0').toString().trim()
             
             matchingResults.push({
@@ -720,18 +715,18 @@ export function EnhancedQuantitySummary({
         if (actualKPIs.length > 0) {
           console.log(`📋 ✅ Matching KPIs (${actualKPIs.length} total):`, actualKPIs.slice(0, 5).map((kpi: any) => ({
             id: kpi.id,
-            activityName: kpi['Activity Name'],
+            activityName: kpi['Activity Description'] || kpi['Activity Name'],
             quantity: parseQuantity(kpi),
             projectFullCode: kpi['Project Full Code'],
             zone: kpi['Zone'],
-            actualDate: kpi['Actual Date'] || kpi.actual_date || 'N/A'
+            actualDate: kpi['Activity Date'] || kpi.activity_date || kpi['Actual Date'] || (kpi as any).actual_date || 'N/A'
           })))
         } else if (allActualKPIs.length > 0) {
           console.log(`⚠️ [EnhancedQuantitySummary] No KPIs matched!`, {
             totalActualKPIs: allActualKPIs.length,
             sampleKPIs: allActualKPIs.slice(0, 5).map((kpi: any) => ({
               id: kpi.id,
-              activityName: kpi['Activity Name'] || kpi.activity_name,
+              activityName: kpi['Activity Description'] || kpi['Activity Name'] || kpi.activity_description || (kpi as any).activity_name,
               projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
               projectCode: kpi['Project Code'] || kpi.project_code,
               zone: kpi['Zone Number'] || (kpi as any).zone_number || kpi['Zone'] || kpi.zone || '0',
@@ -751,7 +746,7 @@ export function EnhancedQuantitySummary({
             allKPIsInputTypes: allKPIs.map((kpi: any) => ({
               id: kpi.id,
               inputType: kpi['Input Type'] || kpi.input_type,
-              activityName: kpi['Activity Name'] || kpi.activity_name
+              activityName: kpi['Activity Description'] || kpi['Activity Name'] || kpi.activity_description || (kpi as any).activity_name
             }))
           })
         }
@@ -815,7 +810,7 @@ export function EnhancedQuantitySummary({
           const actualKPIsUntilYesterday = actualKPIs.filter((kpi: any) => {
             const isUntilYesterday = isKPIUntilYesterday(kpi, 'actual')
             if (showDebug && !isUntilYesterday) {
-              const kpiDate = kpi['Actual Date'] || kpi.actual_date || kpi['Activity Date'] || kpi.activity_date || 'N/A'
+              const kpiDate = kpi['Activity Date'] || kpi.activity_date || kpi['Actual Date'] || (kpi as any).actual_date || 'N/A'
               console.log(`⏰ [EnhancedQuantitySummary] KPI ${kpi.id} excluded (future date): ${kpiDate}`)
             }
             return isUntilYesterday
@@ -881,7 +876,7 @@ export function EnhancedQuantitySummary({
 
       // ✅ Always log in development mode for debugging
       console.log('🔍 Enhanced Quantity Summary - Final Results:', {
-        activity: selectedActivity.activity_name,
+        activity: selectedActivity.activity_description,
         activityName: activityName,
         project: selectedProject.project_code,
         projectFullCode: projectFullCodeToUse,

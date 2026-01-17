@@ -453,14 +453,14 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
   // Get all KPI details
   const projectFullCode = kpi.project_full_code || kpi.project_code || 'N/A'
   const projectSubCode = kpi.project_sub_code || raw['Project Sub Code'] || ''
-  const activityName = kpi.activity_name || 'N/A'
+  const activityName = kpi.activity_description || (kpi as any).activity_name || 'N/A'
   const inputType = kpi.input_type || raw['Input Type'] || 'N/A'
-  const date = kpi.actual_date || kpi.target_date || kpi.activity_date || raw['Activity Date'] || raw['Target Date'] || raw['Actual Date'] || 'N/A'
+  const date = kpi.activity_date || (kpi as any).actual_date || (kpi as any).target_date || raw['Activity Date'] || raw['Actual Date'] || raw['Target Date'] || 'N/A'
   const quantity = kpi.quantity || raw['Quantity'] || 'N/A'
   const unit = kpi.unit || raw['Unit'] || ''
   const value = kpi.value || raw['Value'] || null
   const virtualValue = raw['Virtual Material Value'] || (kpi as any).virtual_value || null
-  const zone = kpi.zone || raw['Zone'] || raw['Section'] || 'N/A'
+  const zone = (kpi as any).zone_number || raw['Zone Number'] || raw['Zone'] || raw['Section'] || 'N/A'
   const division = (kpi as any).activity_division || raw['Activity Division'] || 'N/A'
   const scope = raw['Activity Scope'] || (kpi as any).activity_scope || 'N/A'
   const timing = kpi.activity_timing || raw['Activity Timing'] || 'N/A'

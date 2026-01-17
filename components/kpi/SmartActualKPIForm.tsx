@@ -120,12 +120,12 @@ export function SmartActualKPIForm({
       
       // Handle both old and new column names
       setProjectCode(kpi['Project Full Code'] || kpi.project_full_code || '')
-      setActivityName(kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || kpi.activity || '')
+      setActivityName(kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || (kpi as any).activity_name || (kpi as any).activity || '')
       setQuantity(kpi['Quantity']?.toString() || kpi.quantity?.toString() || '')
       setUnit(kpi['Unit'] || kpi.unit || '')
       
       // Handle date formatting
-      const actualDateValue = kpi['Actual Date'] || kpi.actual_date || ''
+      const actualDateValue = kpi['Actual Date'] || kpi['Activity Date'] || kpi.activity_date || (kpi as any).actual_date || ''
       const formatDateForInput = (dateStr: string) => {
         if (!dateStr) return ''
         try {
@@ -163,7 +163,7 @@ export function SmartActualKPIForm({
       
       console.log('✅ SmartActualKPIForm: KPI data loaded:', {
         projectCode: kpi['Project Full Code'] || kpi.project_full_code,
-        activityName: kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || kpi.activity_name || kpi.activity || '',
+        activityName: kpi['Activity Description'] || kpi.activity_description || kpi['Activity Name'] || (kpi as any).activity_name || (kpi as any).activity || '',
         quantity: kpi['Quantity'] || kpi.quantity,
         unit: kpi['Unit'] || kpi.unit,
         actualDate: formatDateForInput(actualDateValue)
@@ -270,7 +270,7 @@ export function SmartActualKPIForm({
   // Smart auto-fill when activity is selected
   useEffect(() => {
     if (selectedActivity) {
-      console.log('🧠 Smart Form: Activity selected:', selectedActivity.activity_name)
+      console.log('🧠 Smart Form: Activity selected:', selectedActivity.activity_description)
       
       // Auto-fill unit
       if (selectedActivity.unit) {
@@ -414,7 +414,7 @@ export function SmartActualKPIForm({
 
       console.log(`✅ Loaded ${mappedActivities.length} activities for project ${projectCode}`)
       console.log(`📊 Activities:`, mappedActivities.map(a => ({
-        name: a.activity_description || a.activity_name || a.activity || '',
+        name: a.activity_description || '',
         project_code: a.project_code,
         project_full_code: a.project_full_code
       })))
@@ -449,7 +449,7 @@ export function SmartActualKPIForm({
       const raw = activityObj.raw || {}
       const activityDesc = activityObj.activity_description || 
                         activityObj['Activity Description'] ||
-                        activityObj.activity_name || 
+                        (activityObj as any).activity_name || 
                         activityObj['Activity Name'] ||
                         activityObj.activity || 
                         activityObj['Activity'] ||
@@ -465,7 +465,7 @@ export function SmartActualKPIForm({
       const raw = activityObj.raw || {}
       const activityDesc = activityObj.activity_description || 
                         activityObj['Activity Description'] ||
-                        activityObj.activity_name || 
+                        (activityObj as any).activity_name || 
                         activityObj['Activity Name'] ||
                         activityObj.activity || 
                         activityObj['Activity'] ||
@@ -801,7 +801,7 @@ export function SmartActualKPIForm({
                         const raw = activityObj.raw || {}
                         const activityDesc = activityObj.activity_description || 
                                           activityObj['Activity Description'] ||
-                                          activityObj.activity_name || 
+                                          (activityObj as any).activity_name || 
                                           activityObj['Activity Name'] ||
                                           activityObj.activity || 
                                           activityObj['Activity'] ||
@@ -818,7 +818,7 @@ export function SmartActualKPIForm({
                         const raw = activityObj.raw || {}
                         const activityDesc = activityObj.activity_description || 
                                           activityObj['Activity Description'] ||
-                                          activityObj.activity_name || 
+                                          (activityObj as any).activity_name || 
                                           activityObj['Activity Name'] ||
                                           activityObj.activity || 
                                           activityObj['Activity'] ||

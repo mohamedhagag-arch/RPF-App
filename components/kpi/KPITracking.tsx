@@ -1015,18 +1015,17 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           const kpiRecordsForProgress: KPIRecord[] = sortedKPIs.map((processed: ProcessedKPI) => ({
             id: processed.id,
             project_full_code: processed.project_full_code,
-            activity_name: processed.activity_name,
+            activity_description: (processed as any).activity_description || (processed as any).activity_name || '',
             quantity: processed.quantity,
             input_type: processed.input_type,
             section: processed.section,
-            zone_number: processed.zone_number || processed.zone || '0',
+            zone_number: (processed as any).zone_number || (processed as any).zone || '0',
             drilled_meters: processed.drilled_meters,
             unit: processed.unit,
             value: processed.value,
             planned_value: processed.planned_value,
             actual_value: processed.actual_value,
-            target_date: processed.target_date,
-            activity_date: processed.activity_date,
+            activity_date: processed.activity_date || (processed as any).target_date || (processed as any).actual_date,
             created_at: processed.created_at,
             updated_at: processed.updated_at,
             status: processed.status === 'excellent' || processed.status === 'good' 
@@ -2805,7 +2804,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     // Extract KPI info - SAME AS TABLE
     const kpiProjectCode = ((kpi as any).project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
     const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-    const kpiActivityName = (kpi.activity_description || rawKPI['Activity Description'] || kpi.activity_name || rawKPI['Activity Name'] || kpi.activity || rawKPI['Activity'] || '').toLowerCase().trim()
+    const kpiActivityName = ((kpi as any).activity_description || rawKPI['Activity Description'] || (kpi as any).activity_name || rawKPI['Activity Name'] || (kpi as any).activity || rawKPI['Activity'] || '').toLowerCase().trim()
     const kpiZoneRaw = (rawKPI['Zone Number'] || (kpi as any).zone_number || kpi.zone || rawKPI['Zone'] || '0').toString().trim()
     const kpiZone = normalizeZone(kpiZoneRaw, kpiProjectCode)
     const kpiZoneNum = extractZoneNumber(kpiZone)
@@ -2965,7 +2964,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const activityIndexMap = useMemo(() => {
     const map = new Map<string, BOQActivity[]>() // Store array to handle multiple activities with same name but different zones
     activities.forEach((activity: BOQActivity) => {
-      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityName = (activity.activity_description || '').toLowerCase().trim()
       const projectFullCode = (activity.project_full_code || '').toLowerCase().trim()
       const projectCode = (activity.project_code || '').toLowerCase().trim()
       const rawActivity = (activity as any).raw || {}
@@ -3098,7 +3097,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         const calculatedRate = totalValueFromActivity / totalUnits
         // ✅ DEBUG: Log calculated rate for first few KPIs
         if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) { // Log 1% randomly
-          const aZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+          const aZone = (relatedActivity.zone_number || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
           console.log(`✅ [getActivityRate] Calculated rate for ${activityName}:`, {
             kpiZone: kpiZone || 'N/A',
             activityZone: aZone || 'N/A',
@@ -3117,7 +3116,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (relatedActivity.rate && relatedActivity.rate > 0) {
         // ✅ DEBUG: Log successful rate match for first few KPIs
         if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) { // Log 1% randomly
-          const aZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+          const aZone = (relatedActivity.zone_number || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
           console.log(`✅ [getActivityRate] Found rate for ${activityName}:`, {
             kpiZone: kpiZone || 'N/A',
             activityZone: aZone || 'N/A',
@@ -3253,8 +3252,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return paginated.map(kpi => ({
       'Project Full Code': kpi.project_full_code,
       'Project Code': (kpi as any).project_code || '',
-      'Activity Description': kpi.activity_description || kpi.activity_name || '',
-      'Activity Name': kpi.activity_description || kpi.activity_name || '', // Backward compatibility
+      'Activity Description': (kpi as any).activity_description || (kpi as any).activity_name || '',
+      'Activity Name': (kpi as any).activity_description || (kpi as any).activity_name || '', // Backward compatibility
       'Input Type': kpi.input_type,
       'Quantity': kpi.quantity,
       'Unit': kpi.unit,
@@ -3874,7 +3873,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           }
         })}
         activities={activities.map(a => ({
-          activity_name: a.activity_name,
+          activity_name: a.activity_description, // Backward compatibility
+          activity_description: a.activity_description,
           project_code: a.project_code,
           project_full_code: a.project_full_code || a.project_code, // ✅ CRITICAL: Include project_full_code
           zone: a.zone_number || '0',

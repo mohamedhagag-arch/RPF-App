@@ -92,7 +92,7 @@ export function AddKPIForm() {
       const raw = activityObj.raw || {}
       const activityDesc = activityObj.activity_description || 
                           activityObj['Activity Description'] ||
-                          activityObj.activity_name || 
+                          (activityObj as any).activity_name || 
                           activityObj['Activity Name'] ||
                           activityObj.activity || 
                           activityObj['Activity'] ||
@@ -199,8 +199,7 @@ export function AddKPIForm() {
         console.log('🔍 First activity structure:', {
           id: firstActivity.id,
           activity_description: firstActivity.activity_description,
-          activity_name: firstActivity.activity_name,
-          activity: firstActivity.activity,
+          activity_name: firstActivity.activity_description, // Backward compatibility
           raw: firstActivity.raw,
           allKeys: Object.keys(firstActivity).filter(k => k.includes('activity') || k.includes('Activity')),
           // Check database column names directly
@@ -329,7 +328,7 @@ export function AddKPIForm() {
         // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
         'Zone': (() => {
           const projectFullCodeValue = projectFullCode
-          const activityZone = zone || selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+          const activityZone = zone || selectedActivity?.zone_number || ''
           if (activityZone && projectFullCodeValue) {
             // If zone already contains project code, use it as is
             if (activityZone.includes(projectFullCodeValue)) {
@@ -552,7 +551,7 @@ export function AddKPIForm() {
                         const raw = activityObj.raw || {}
                         const activityDesc = activityObj.activity_description || 
                                           activityObj['Activity Description'] ||
-                                          activityObj.activity_name || 
+                                          (activityObj as any).activity_name || 
                                           activityObj['Activity Name'] ||
                                           activityObj.activity || 
                                           activityObj['Activity'] ||
@@ -572,7 +571,7 @@ export function AddKPIForm() {
                         // Try all possible sources for activity description
                         const activityDesc = activityObj.activity_description || 
                                           activityObj['Activity Description'] ||
-                                          activityObj.activity_name || 
+                                          (activityObj as any).activity_name || 
                                           activityObj['Activity Name'] ||
                                           activityObj.activity || 
                                           activityObj['Activity'] ||

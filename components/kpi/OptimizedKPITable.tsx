@@ -288,7 +288,7 @@ export function OptimizedKPITable({
                     {/* Target Date */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {(() => {
-                        const dateValue = kpi.target_date || kpi.activity_date
+                        const dateValue = kpi.activity_date || (kpi as any).target_date
                         if (!dateValue) {
                           return <span className="text-gray-400 dark:text-gray-600">Not set</span>
                         }
