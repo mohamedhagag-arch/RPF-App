@@ -140,11 +140,11 @@ export function ZoneAnalytics({ activities, kpis = [] }: ZoneAnalyticsProps) {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {analytics.zone_performance.map((zone, index) => (
                 <tr 
-                  key={zone.zone_ref}
+                  key={zone.zone_number}
                   className={`hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer ${
-                    selectedZone === zone.zone_ref ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                    selectedZone === zone.zone_number ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                   }`}
-                  onClick={() => setSelectedZone(selectedZone === zone.zone_ref ? null : zone.zone_ref)}
+                  onClick={() => setSelectedZone(selectedZone === zone.zone_number ? null : zone.zone_number)}
                 >
                       <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -155,7 +155,7 @@ export function ZoneAnalytics({ activities, kpis = [] }: ZoneAnalyticsProps) {
                       </div>
                       <div className="ml-4">
                         <div className="text-sm font-medium text-gray-900 dark:text-white">
-                          {zone.zone_name || zone.zone_ref}
+                          {zone.zone_name || zone.zone_number}
                         </div>
                         <div className="text-sm text-gray-500 dark:text-gray-400">
                           {zone.zone_number ? `#${zone.zone_number}` : 'No number'}
