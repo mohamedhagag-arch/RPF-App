@@ -48,7 +48,8 @@ import {
   Globe,
   Star,
   Target,
-  Zap
+  Zap,
+  Wrench
 } from 'lucide-react'
 
 interface AdvancedPermissionsManagerProps {
@@ -865,18 +866,36 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
 
                   {/* Permissions Grid */}
                   <div className="p-4">
+                    {/* Special Highlight for Maintenance Mode */}
+                    {category === 'settings' && filteredPermissions.some(p => p.id === 'settings.maintenance_mode') && (
+                      <div className="mb-4 p-4 bg-gradient-to-r from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 border-2 border-orange-300 dark:border-orange-700 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Wrench className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                          <h4 className="font-bold text-orange-900 dark:text-orange-100">Maintenance Mode</h4>
+                        </div>
+                        <p className="text-sm text-orange-800 dark:text-orange-200">
+                          Control site maintenance mode and configure maintenance page settings. When enabled, the site will be closed for all users except admin.
+                        </p>
+                      </div>
+                    )}
+                    
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {filteredPermissions.map(permission => {
                         const isSelected = selectedPermissions.includes(permission.id)
                         const isInRoleDefaults = roleDefaults.includes(permission.id)
+                        const isMaintenanceMode = permission.id === 'settings.maintenance_mode'
                         
                         return (
                           <div
                             key={permission.id}
                             className={`group p-3 border-2 rounded-lg cursor-pointer transition-all duration-300 hover:shadow-lg ${
-                              isSelected
-                                ? `border-${color}-400 bg-${color}-50 dark:bg-${color}-900/20 shadow-md`
-                                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                              isMaintenanceMode
+                                ? isSelected
+                                  ? 'border-orange-400 bg-orange-50 dark:bg-orange-900/30 shadow-lg ring-2 ring-orange-200 dark:ring-orange-800'
+                                  : 'border-orange-200 dark:border-orange-800 hover:border-orange-300 hover:bg-orange-50 dark:hover:bg-orange-900/20'
+                                : isSelected
+                                  ? `border-${color}-400 bg-${color}-50 dark:bg-${color}-900/20 shadow-md`
+                                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
                             } ${!customMode ? 'opacity-75' : ''}`}
                             onClick={() => customMode && togglePermission(permission.id)}
                           >
@@ -886,19 +905,44 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                                 checked={isSelected}
                                 onChange={() => customMode && togglePermission(permission.id)}
                                 disabled={!customMode}
-                                className={`h-4 w-4 text-${color}-600 rounded focus:ring-2 focus:ring-${color}-500/50 mt-0.5`}
+                                className={`h-4 w-4 ${
+                                  isMaintenanceMode 
+                                    ? 'text-orange-600 rounded focus:ring-2 focus:ring-orange-500/50' 
+                                    : `text-${color}-600 rounded focus:ring-2 focus:ring-${color}-500/50`
+                                } mt-0.5`}
                               />
                               <div className="flex-1 min-w-0">
-                                <h4 className="font-semibold text-gray-900 dark:text-white text-xs mb-1">
-                                  {permission.name}
-                                </h4>
-                                <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 leading-relaxed">
+                                <div className="flex items-center gap-2 mb-1">
+                                  {isMaintenanceMode && (
+                                    <Wrench className="h-4 w-4 text-orange-600 dark:text-orange-400 flex-shrink-0" />
+                                  )}
+                                  <h4 className={`font-semibold text-gray-900 dark:text-white text-xs ${
+                                    isMaintenanceMode ? 'text-orange-900 dark:text-orange-100' : ''
+                                  }`}>
+                                    {permission.name}
+                                  </h4>
+                                </div>
+                                <p className={`text-xs mb-2 leading-relaxed ${
+                                  isMaintenanceMode 
+                                    ? 'text-orange-800 dark:text-orange-200' 
+                                    : 'text-gray-600 dark:text-gray-400'
+                                }`}>
                                   {permission.description}
                                 </p>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-xs px-2 py-1 rounded-lg font-medium ${bgColorClasses[color as keyof typeof bgColorClasses]} ${textColorClasses[color as keyof typeof textColorClasses]}`}>
+                                  <span className={`text-xs px-2 py-1 rounded-lg font-medium ${
+                                    isMaintenanceMode
+                                      ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
+                                      : `${bgColorClasses[color as keyof typeof bgColorClasses]} ${textColorClasses[color as keyof typeof textColorClasses]}`
+                                  }`}>
                                     {permission.action}
                                   </span>
+                                  {isMaintenanceMode && (
+                                    <span className="text-xs text-orange-700 dark:text-orange-300 flex items-center gap-1 bg-orange-100 dark:bg-orange-900/30 px-2 py-1 rounded-lg font-medium">
+                                      <AlertTriangle className="h-3 w-3" />
+                                      Critical
+                                    </span>
+                                  )}
                                   {isInRoleDefaults && !customMode && (
                                     <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded-lg">
                                       <CheckCircle className="h-3 w-3" />

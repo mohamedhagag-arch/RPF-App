@@ -80,6 +80,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'settings.holidays.edit', name: 'Edit Holidays', category: 'settings', description: 'Can edit existing holidays', action: 'edit' },
   { id: 'settings.holidays.delete', name: 'Delete Holidays', category: 'settings', description: 'Can delete holidays', action: 'delete' },
   { id: 'settings.login_security', name: 'Manage Login Security', category: 'settings', description: 'Can manage login security settings including rate limiting, OTP, OAuth, password validation, and authentication methods', action: 'manage' },
+  { id: 'settings.maintenance_mode', name: 'Manage Maintenance Mode', category: 'settings', description: 'Can enable/disable maintenance mode and configure maintenance page settings. When enabled, the site will be closed for all users except admin', action: 'manage' },
   { id: 'settings.manage', name: 'Manage All Settings', category: 'settings', description: 'Can manage all system settings', action: 'manage' },
   
   // System Permissions
@@ -404,7 +405,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'commercial.payments_invoicing.view', 'commercial.payments_invoicing.create', 'commercial.payments_invoicing.edit', 'commercial.payments_invoicing.delete', 'commercial.payments_invoicing.import', 'commercial.payments_invoicing.export',
     // Settings (manage most settings)
     'settings.view', 'settings.company', 'settings.divisions', 'settings.project_types', 'settings.currencies', 'settings.activities', 'settings.holidays', 'settings.holidays.view', 'settings.holidays.create', 'settings.holidays.edit', 'settings.holidays.delete',
-    'settings.login_security', 'settings.manage', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete',
+    'settings.login_security', 'settings.maintenance_mode', 'settings.manage', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete',
     'project_types.view', 'project_types.create', 'project_types.edit', 'project_types.delete',
     'activities.view', 'activities.create', 'activities.edit', 'activities.delete',
     'departments.view', 'departments.create', 'departments.edit', 'departments.delete',
@@ -690,7 +691,8 @@ export function hasPermission(user: UserWithPermissions | null, permission: stri
     'users.view',
     'system.backup',
     'system.restore',
-    'database.manage'
+    'database.manage',
+    'settings.maintenance_mode'
   ]
   
   if (user.role === 'admin') {

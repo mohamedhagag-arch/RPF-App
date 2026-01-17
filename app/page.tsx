@@ -117,12 +117,34 @@ export default function Home() {
     )
   }
 
-  // ✅ Check maintenance mode - if enabled and user is not admin, show maintenance page
-  if (maintenanceEnabled && appUser?.role !== 'admin') {
-    return <MaintenancePage message={message} estimatedTime={estimatedTime} />
+  // ✅ IMPORTANT: Always show login form if user is not logged in
+  // This allows anyone (including admins) to log in even during maintenance
+  if (!user) {
+    // User is not logged in - always show login form
+    // After login, we'll check if they're admin or not
+    return <LoginForm />
   }
 
-  // If user exists, show redirecting message
+  // ✅ User is logged in - check maintenance mode and admin status
+  if (maintenanceEnabled) {
+    // If user is logged in and is admin, allow access
+    if (appUser?.role === 'admin') {
+      // Admin can access - show redirecting message
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+          <div className="text-center">
+            <LoadingSpinner size="lg" />
+            <p className="mt-4 text-gray-600 dark:text-gray-400">Redirecting...</p>
+          </div>
+        </div>
+      )
+    } else {
+      // Non-admin user logged in during maintenance - show maintenance page
+      return <MaintenancePage message={message} estimatedTime={estimatedTime} />
+    }
+  }
+
+  // If user exists and maintenance is not enabled, show redirecting message
   if (user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -134,6 +156,6 @@ export default function Home() {
     )
   }
 
-  // Show login form if no user
+  // Fallback: Show login form
   return <LoginForm />
 }

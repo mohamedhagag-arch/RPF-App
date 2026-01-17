@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js'
  * - If user is on home page with session → redirects to dashboard
  * - If user is on protected route without session → redirects to login
  * - ✅ Added: Check maintenance mode and redirect non-admin users
+ * - ✅ IMPORTANT: Allow admins to log in even during maintenance
  */
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
@@ -26,6 +27,10 @@ export async function middleware(req: NextRequest) {
     return res
   }
 
+  // ✅ IMPORTANT: Allow access to login/auth pages even during maintenance
+  // This allows admins to log in and disable maintenance mode
+  const isAuthPage = pathname === '/' || pathname === '/register' || pathname === '/reset-password'
+  
   // Check maintenance mode
   try {
     // Create Supabase client for settings check
@@ -125,50 +130,62 @@ export async function middleware(req: NextRequest) {
       }
 
       if (isMaintenanceEnabled) {
-        // Check if user is admin
-        const supabaseAuth = createMiddlewareClient({ req, res })
-        let isAdmin = false
-
-        try {
-          const { data: { session } } = await supabaseAuth.auth.getSession()
-          
-          if (session?.user) {
-            // Get user role from users table
-            const { data: userData } = await supabase
-              .from('users')
-              .select('role')
-              .eq('id', session.user.id)
-              .single()
-
-            isAdmin = userData?.role === 'admin'
-            
-            if (process.env.NODE_ENV === 'development') {
-              console.log('🔍 User admin check:', {
-                userId: session.user.id,
-                role: userData?.role,
-                isAdmin
-              })
-            }
-          } else {
-            // No session - user is not logged in
-            if (process.env.NODE_ENV === 'development') {
-              console.log('🔍 No session found - redirecting to maintenance page')
-            }
-          }
-        } catch (error) {
-          // If error checking user, assume not admin
-          console.log('Error checking admin status:', error)
-        }
-
-        // If maintenance is enabled and user is not admin (or not logged in), redirect to maintenance page
-        if (!isAdmin) {
+        // ✅ IMPORTANT: For login/auth pages, always allow access
+        // The login page component will handle showing maintenance page for non-admins
+        // But admins can still log in
+        if (isAuthPage) {
           if (process.env.NODE_ENV === 'development') {
-            console.log('🛠️ Maintenance mode enabled - redirecting to /maintenance')
+            console.log('🔓 Allowing access to login page during maintenance')
           }
-          return NextResponse.redirect(new URL('/maintenance', req.url))
+          // Continue to normal flow - let the page component handle maintenance display
         } else {
-          if (process.env.NODE_ENV === 'development') {
-            console.log('✅ Admin user - allowing access despite maintenance mode')
+          // For all other routes (protected routes), check if user is admin
+          const supabaseAuth = createMiddlewareClient({ req, res })
+          let isAdmin = false
+
+          try {
+            const { data: { session } } = await supabaseAuth.auth.getSession()
+            
+            if (session?.user) {
+              // Get user role from users table
+              const { data: userData } = await supabase
+                .from('users')
+                .select('role')
+                .eq('id', session.user.id)
+                .single()
+
+              isAdmin = userData?.role === 'admin'
+              
+              if (process.env.NODE_ENV === 'development') {
+                console.log('🔍 User admin check:', {
+                  userId: session.user.id,
+                  role: userData?.role,
+                  isAdmin
+                })
+              }
+            } else {
+              // No session - user is not logged in, redirect to maintenance page
+              if (process.env.NODE_ENV === 'development') {
+                console.log('🔍 No session found - redirecting to maintenance page')
+              }
+              return NextResponse.redirect(new URL('/maintenance', req.url))
+            }
+          } catch (error) {
+            // If error checking user, assume not admin and redirect to maintenance
+            console.log('Error checking admin status:', error)
+            return NextResponse.redirect(new URL('/maintenance', req.url))
+          }
+
+          // If maintenance is enabled and user is not admin, redirect to maintenance page
+          if (!isAdmin) {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🛠️ Maintenance mode enabled - redirecting to /maintenance')
+            }
+            return NextResponse.redirect(new URL('/maintenance', req.url))
+          } else {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('✅ Admin user - allowing access despite maintenance mode')
+            }
           }
         }
       }

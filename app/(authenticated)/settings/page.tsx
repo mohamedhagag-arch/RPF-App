@@ -7,6 +7,7 @@ import { CompanySettings } from '@/components/settings/CompanySettings'
 import { CompaniesManager } from '@/components/settings/CompaniesManager'
 import { DatabaseManagement } from '@/components/settings/DatabaseManagement'
 import { UserManagement } from '@/components/users/UserManagement'
+import { MaintenanceModeManager } from '@/components/settings/MaintenanceModeManager'
 import { useAuth } from '@/app/providers'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useState, useEffect } from 'react'
@@ -20,7 +21,7 @@ export default function SettingsPage() {
   const { appUser } = useAuth()
   const guard = usePermissionGuard()
   const searchParams = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'general' | 'company' | 'companies' | 'holidays' | 'activities' | 'database' | 'users'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'company' | 'companies' | 'holidays' | 'activities' | 'database' | 'users' | 'maintenance'>('general')
   
   // Check permissions for advanced features
   const isAdmin = appUser?.role === 'admin'
@@ -30,6 +31,7 @@ export default function SettingsPage() {
   const canManageHolidays = guard.hasAccess('settings.holidays') || isAdmin
   const canManageActivities = guard.hasAccess('settings.activities') || isAdmin
   const canManageDatabase = guard.hasAccess('database.manage') || isAdmin
+  const canManageMaintenance = guard.hasAccess('settings.maintenance_mode') || guard.hasAccess('settings.manage') || isAdmin
 
   // Handle query parameter for users tab
   useEffect(() => {
@@ -45,6 +47,7 @@ export default function SettingsPage() {
     if (!canManageActivities && activeTab === 'activities') setActiveTab('general')
     if (!canManageDatabase && activeTab === 'database') setActiveTab('general')
     if (!canManageUsers && activeTab === 'users') setActiveTab('general')
+    if (!canManageMaintenance && activeTab === 'maintenance') setActiveTab('general')
   }, [searchParams, canManageUsers, canManageCompany, canManageCompanies, canManageHolidays, canManageActivities, canManageDatabase, activeTab])
 
   return (
@@ -142,6 +145,18 @@ export default function SettingsPage() {
             👥 User Management
           </ModernButton>
         )}
+        
+        {/* Maintenance Mode Tab */}
+        {canManageMaintenance && (
+          <ModernButton
+            variant={activeTab === 'maintenance' ? 'primary' : 'ghost'}
+            onClick={() => setActiveTab('maintenance')}
+            size="sm"
+            className="relative"
+          >
+            🛠️ Maintenance Mode
+          </ModernButton>
+        )}
       </div>
 
       {/* Content */}
@@ -152,6 +167,7 @@ export default function SettingsPage() {
         {activeTab === 'activities' && canManageActivities && <CustomActivitiesManager />}
         {activeTab === 'database' && canManageDatabase && <DatabaseManagement />}
         {activeTab === 'users' && canManageUsers && <UserManagement userRole={appUser?.role} />}
+        {activeTab === 'maintenance' && canManageMaintenance && <MaintenanceModeManager />}
       </div>
     </PermissionPage>
   )
