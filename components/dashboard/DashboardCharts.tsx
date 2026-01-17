@@ -82,7 +82,8 @@ export function DashboardCharts({ projects, activities, kpis }: DashboardChartsP
   // KPI Performance Over Time
   const kpiPerformanceData = useMemo(() => {
     const kpiByMonth = kpis.reduce((acc, kpi) => {
-      const activityDate = kpi.activity_date || kpi.target_date || kpi.actual_date
+      // Use activity_date which is the unified date field in KPIRecord
+      const activityDate = kpi.activity_date
       if (!activityDate) return acc
       
       const month = new Date(activityDate).toLocaleDateString('en-US', { 

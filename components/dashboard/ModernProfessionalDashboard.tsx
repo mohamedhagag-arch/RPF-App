@@ -374,7 +374,8 @@ export function ModernProfessionalDashboard() {
       const today = new Date().toISOString().split('T')[0]
       const todayKPIs = mappedKPIs.filter(k => {
         try {
-          const activityDate = k.activity_date || k.target_date
+          // Use activity_date which is the unified date field in KPIRecord
+          const activityDate = k.activity_date
           if (!activityDate) return false
           const date = new Date(activityDate)
           if (isNaN(date.getTime())) return false
@@ -388,7 +389,8 @@ export function ModernProfessionalDashboard() {
         try {
           const status = (k.status || '').toLowerCase()
           const isCompleted = ['completed', 'done', 'finished'].includes(status)
-          const activityDate = k.activity_date || k.target_date
+          // Use activity_date which is the unified date field in KPIRecord
+          const activityDate = k.activity_date
           if (!activityDate) return false
           const date = new Date(activityDate)
           if (isNaN(date.getTime())) return false

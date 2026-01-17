@@ -53,7 +53,8 @@ export function DashboardOptimizations({ projects, activities, kpis }: Dashboard
     // Check for overdue KPIs
     const now = new Date()
     const overdueKPIs = kpis.filter(kpi => {
-      const activityDate = kpi.activity_date || kpi.target_date
+      // Use activity_date which is the unified date field in KPIRecord
+      const activityDate = kpi.activity_date
       return kpi.status !== 'completed' && activityDate && new Date(activityDate) < now
     })
     

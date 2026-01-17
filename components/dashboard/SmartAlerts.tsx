@@ -40,17 +40,19 @@ export function SmartAlerts({ projects, activities, kpis }: SmartAlertsProps) {
 
     // Overdue KPIs
     const overdueKPIs = kpis.filter(kpi => {
-      const activityDate = kpi.activity_date || kpi.target_date
+      // Use activity_date which is the unified date field in KPIRecord
+      const activityDate = kpi.activity_date
       return kpi.status !== 'completed' && activityDate && new Date(activityDate) < now
     })
     
     overdueKPIs.forEach(kpi => {
-      const activityDate = kpi.activity_date || kpi.target_date || ''
+      // Use activity_date which is the unified date field in KPIRecord
+      const activityDate = kpi.activity_date || ''
       alertsList.push({
         id: `overdue-kpi-${kpi.id}`,
         type: 'error',
         title: 'Overdue KPI',
-        description: `${kpi.kpi_name || kpi.activity_name} was due on ${new Date(activityDate).toLocaleDateString()}`,
+        description: `${kpi.kpi_name || kpi.activity_description || kpi.activity_name} was due on ${new Date(activityDate).toLocaleDateString()}`,
         action: 'Update KPI status',
         priority: 'high',
         timestamp: activityDate
@@ -59,7 +61,8 @@ export function SmartAlerts({ projects, activities, kpis }: SmartAlertsProps) {
 
     // Today's KPIs
     const todayKPIs = kpis.filter(kpi => {
-      const activityDate = kpi.activity_date || kpi.target_date
+      // Use activity_date which is the unified date field in KPIRecord
+      const activityDate = kpi.activity_date
       return activityDate === today && kpi.status !== 'completed'
     })
     
@@ -68,7 +71,7 @@ export function SmartAlerts({ projects, activities, kpis }: SmartAlertsProps) {
         id: `today-kpi-${kpi.id}`,
         type: 'warning',
         title: 'KPI Due Today',
-        description: `${kpi.kpi_name || kpi.activity_name} is due today`,
+        description: `${kpi.kpi_name || kpi.activity_description || kpi.activity_name} is due today`,
         action: 'Complete KPI',
         priority: 'high',
         timestamp: today
@@ -166,7 +169,7 @@ export function SmartAlerts({ projects, activities, kpis }: SmartAlertsProps) {
         id: `variance-activity-${activity.id}`,
         type: 'info',
         title: 'High Variance Activity',
-        description: `${activity.activity_name} has significant variance from planned units`,
+        description: `${activity.activity_description} has significant variance from planned units`,
         action: 'Review activity progress',
         priority: 'medium',
         timestamp: activity.updated_at || activity.created_at
