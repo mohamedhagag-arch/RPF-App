@@ -226,10 +226,9 @@ export default function SmartKPIPage() {
         unit: kpiData['Unit'] || kpiData.unit || '',
         inputType: 'Actual', // Always Actual for manual entry
         activityDate: activityDate, // ✅ Unified date field (replaces targetDate and actualDate)
-        // ✅ Map Zone Ref/Number to Zone (NOT to Section - Section is separate)
+        // ✅ Map Zone Number to Zone (NOT to Section - Section is separate)
         // ✅ NOT from Section - Section is separate from Zone
-        zoneRef: kpiData['Zone Ref'] || kpiData.zone_ref || '',
-        zoneNumber: kpiData['Zone Number'] || kpiData['Zone'] || kpiData.zone_number || kpiData.zone || ''
+        zoneNumber: kpiData['Zone Number'] || kpiData['Zone'] || kpiData.zone_number || kpiData.zone || '0'
       })
       
       // ✅ CRITICAL FIX: Override Project Code to use project_code only (not project_full_code)

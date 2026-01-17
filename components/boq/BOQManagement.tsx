@@ -594,11 +594,9 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
         
         // ✅ Use EXACT same priority and normalization as BOQFilter
         let zoneValue = activity.zone_number || 
-                       activity.zone_ref || 
                        rawActivity['Zone Number'] ||
-                       rawActivity['Zone Ref'] ||
                        rawActivity['Zone #'] ||
-                       ''
+                       '0'
         
         if (zoneValue && zoneValue.toString().trim()) {
           let zoneStr = zoneValue.toString().trim()
@@ -1495,24 +1493,16 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
         console.log('🔍 Applied division filter:', filtersToApply.division)
       }
       
-      // ✅ Zone filter (supports multiple zones and both Zone Ref and Zone Number)
+      // ✅ Zone filter (supports multiple zones in Zone Number field)
       if (filtersToApply.zone) {
         const zones = Array.isArray(filtersToApply.zone) ? filtersToApply.zone : [filtersToApply.zone]
         if (zones.length > 0) {
-          // ✅ FIX: Search in both Zone Ref and Zone Number fields with flexible matching
-          // Build OR condition to match zones in either field
+          // ✅ FIX: Search in Zone Number field with flexible matching
+          // Build OR condition to match zones
           const zoneConditions: string[] = []
           
           for (const zone of zones) {
             const zoneTrimmed = zone.trim()
-            // Match in Zone Ref - exact and partial matches
-            zoneConditions.push(`Zone Ref.eq.${zoneTrimmed}`)
-            zoneConditions.push(`Zone Ref.ilike.%${zoneTrimmed}%`)
-            // Also try "Zone " + zone (e.g., "Zone 1" for zone "1")
-            if (/^\d+$/.test(zoneTrimmed)) {
-              zoneConditions.push(`Zone Ref.ilike.%Zone ${zoneTrimmed}%`)
-              zoneConditions.push(`Zone Ref.ilike.%zone ${zoneTrimmed}%`)
-            }
             // Match in Zone Number - exact and partial matches
             zoneConditions.push(`Zone Number.eq.${zoneTrimmed}`)
             zoneConditions.push(`Zone Number.ilike.%${zoneTrimmed}%`)
@@ -1521,7 +1511,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             if (zoneNumberMatch) {
               const zoneNumber = zoneNumberMatch[0]
               zoneConditions.push(`Zone Number.eq.${zoneNumber}`)
-              zoneConditions.push(`Zone Ref.ilike.%${zoneNumber}%`)
+              zoneConditions.push(`Zone Number.ilike.%${zoneNumber}%`)
             }
           }
           
@@ -1529,7 +1519,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             activitiesQuery = activitiesQuery.or(zoneConditions.join(','))
           }
           
-          console.log('🔍 Applied zone filter (searching in Zone Ref and Zone Number with flexible matching):', zones.length === 1 ? zones[0] : `${zones.length} zones`)
+          console.log('🔍 Applied zone filter (searching in Zone Number with flexible matching):', zones.length === 1 ? zones[0] : `${zones.length} zones`)
         }
       }
       
@@ -1817,24 +1807,16 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
         console.log('🔍 Applied division filter:', filters.division)
       }
       
-      // ✅ Zone filter (supports multiple zones and both Zone Ref and Zone Number)
+      // ✅ Zone filter (supports multiple zones in Zone Number field)
       if (filters.zone) {
         const zones = Array.isArray(filters.zone) ? filters.zone : [filters.zone]
         if (zones.length > 0) {
-          // ✅ FIX: Search in both Zone Ref and Zone Number fields with flexible matching
-          // Build OR condition to match zones in either field
+          // ✅ FIX: Search in Zone Number field with flexible matching
+          // Build OR condition to match zones
           const zoneConditions: string[] = []
           
           for (const zone of zones) {
             const zoneTrimmed = zone.trim()
-            // Match in Zone Ref - exact and partial matches
-            zoneConditions.push(`Zone Ref.eq.${zoneTrimmed}`)
-            zoneConditions.push(`Zone Ref.ilike.%${zoneTrimmed}%`)
-            // Also try "Zone " + zone (e.g., "Zone 1" for zone "1")
-            if (/^\d+$/.test(zoneTrimmed)) {
-              zoneConditions.push(`Zone Ref.ilike.%Zone ${zoneTrimmed}%`)
-              zoneConditions.push(`Zone Ref.ilike.%zone ${zoneTrimmed}%`)
-            }
             // Match in Zone Number - exact and partial matches
             zoneConditions.push(`Zone Number.eq.${zoneTrimmed}`)
             zoneConditions.push(`Zone Number.ilike.%${zoneTrimmed}%`)
@@ -1843,7 +1825,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             if (zoneNumberMatch) {
               const zoneNumber = zoneNumberMatch[0]
               zoneConditions.push(`Zone Number.eq.${zoneNumber}`)
-              zoneConditions.push(`Zone Ref.ilike.%${zoneNumber}%`)
+              zoneConditions.push(`Zone Number.ilike.%${zoneNumber}%`)
             }
           }
           
@@ -1851,7 +1833,7 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
             activitiesQuery = activitiesQuery.or(zoneConditions.join(','))
           }
           
-          console.log('🔍 Applied zone filter (searching in Zone Ref and Zone Number with flexible matching):', zones.length === 1 ? zones[0] : `${zones.length} zones`)
+          console.log('🔍 Applied zone filter (searching in Zone Number with flexible matching):', zones.length === 1 ? zones[0] : `${zones.length} zones`)
         }
       }
       
@@ -2097,16 +2079,15 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       console.log('Form Data:', activityData)
       console.log('========================================')
       
-      // Map to database format - Use BOTH old (Column 44/45) and new column names
+      // Map to database format
       const dbData: any = {
         'Project Code': activityData.project_code || '',
         'Project Sub Code': activityData.project_sub_code || '',
         'Project Full Code': activityData.project_full_code || activityData.project_code || '',
         'Activity': activityData.activity_name || '', // Column is "Activity" not "Activity Name"
-        'Activity Division': activityData.activity_division || '', // ✅ FIX: Only use activity_division, not zone_ref
+        'Activity Division': activityData.activity_division || '', // ✅ FIX: Only use activity_division
         'Unit': activityData.unit || '',
-        'Zone Ref': activityData.zone_ref || '', // ✅ Zone Reference (auto-generated or manual)
-        'Zone Number': activityData.zone_number || '', // ✅ Zone Number (dedicated column)
+        'Zone Number': activityData.zone_number || '0', // ✅ Zone Number (merged column)
         
         // ✅ Use BOTH old and new column names for compatibility
         'Planned Units': activityData.planned_units?.toString() || '0',
@@ -2204,10 +2185,9 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
         'Project Sub Code': activityData.project_sub_code || '',
         'Project Full Code': activityData.project_full_code || activityData.project_code || '',
         'Activity': activityData.activity_name || '', // Column is "Activity" not "Activity Name"
-        'Activity Division': activityData.activity_division || '', // ✅ FIX: Only use activity_division, not zone_ref
+        'Activity Division': activityData.activity_division || '', // ✅ FIX: Only use activity_division
         'Unit': activityData.unit || '',
-        'Zone Ref': activityData.zone_ref || '', // ✅ Zone Reference (auto-generated or manual)
-        'Zone Number': activityData.zone_number || '', // ✅ Zone Number (dedicated column)
+        'Zone Number': activityData.zone_number || '0', // ✅ Zone Number (merged column)
         
         // ✅ Use BOTH old and new column names for compatibility
         'Planned Units': activityData.planned_units?.toString() || '0',
@@ -2789,7 +2769,6 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
         'Activity': row['Activity'] || row['activity'] || '',
         'Activity Division': row['Activity Division'] || row['activity_division'] || '',
         'Unit': row['Unit'] || row['unit'] || '',
-        'Zone Ref': row['Zone Ref'] || row['zone_ref'] || '',
         'Activity Name': row['Activity Name'] || row['activity_name'] || row['Activity'] || '',
         'Total Units': row['Total Units'] || row['total_units'] || '0',
         'Planned Units': row['Planned Units'] || row['planned_units'] || '0',
@@ -2832,7 +2811,6 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
       'Activity Name': activity.activity_name,
       'Activity Division': activity.activity_division,
       'Unit': activity.unit,
-      'Zone Ref': activity.zone_ref,
       'Total Units': activity.total_units,
       'Planned Units': activity.planned_units,
       'Actual Units': activity.actual_units,
@@ -2861,7 +2839,6 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
     'Activity Name',
     'Activity Division',
     'Unit',
-    'Zone Ref',
     'Total Units',
     'Planned Units',
     'Actual Units',
@@ -2920,11 +2897,9 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
     const getActivityZone = (activity: BOQActivity): string => {
       const rawActivity = (activity as any).raw || {}
       let zoneValue = activity.zone_number || 
-                     activity.zone_ref || 
                      rawActivity['Zone Number'] ||
-                     rawActivity['Zone Ref'] ||
                      rawActivity['Zone #'] ||
-                     ''
+                     '0'
       
       // ✅ NEW: If zone is empty, try to extract from activity description
       if (!zoneValue || zoneValue.trim() === '') {
@@ -3509,12 +3484,11 @@ export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { 
               activity_name: a.activity_name,
               project_full_code: a.project_full_code || a.project_code,
               project_code: a.project_code || '',
-              zone: a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || rawActivity['Zone #'] || rawActivity['Zone'] || (a as any).zone || '',
-              zone_ref: a.zone_ref || rawActivity['Zone Ref'] || '',
+              zone: a.zone_number || rawActivity['Zone Number'] || rawActivity['Zone #'] || rawActivity['Zone'] || (a as any).zone || '0',
               zone_number: a.zone_number || rawActivity['Zone Number'] || rawActivity['Zone #'] || '',
               unit: a.unit || '',
               activity_division: a.activity_division || '',
-              // ✅ CRITICAL: Include raw data for accessing original database fields (Zone Ref, Zone Number)
+              // ✅ CRITICAL: Include raw data for accessing original database fields (Zone Number)
               raw: rawActivity
             }
           })

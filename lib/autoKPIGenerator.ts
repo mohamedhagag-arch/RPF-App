@@ -136,7 +136,7 @@ export async function generateKPIsFromBOQ(
         project_full_code: projectFullCode, // ✅ Use project_full_code
         // ✅ Section and Zone are separate - Section is only for Actual KPIs entered by site engineer
         section: '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
-        zone: activity.zone_ref || activity.zone_number || '', // ✅ Zone comes from activity.zone_ref or zone_number
+        zone: activity.zone_number || '0', // ✅ Zone comes from activity.zone_number
         day: `Day ${index + 1} - ${date.toLocaleDateString('en-US', { weekday: 'long' })}`,
         activity_division: activity.activity_division || '', // ✅ Division field
         activity_timing: activity.activity_timing || 'post-commencement' // ✅ Activity Timing field
@@ -939,7 +939,7 @@ export async function previewKPIs(activity: BOQActivity, config?: WorkdaysConfig
         project_full_code: activity.project_full_code || activity.project_code || '',
         // ✅ Section and Zone are separate - Section is only for Actual KPIs entered by site engineer
         section: '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
-        zone: activity.zone_ref || activity.zone_number || '', // ✅ Zone comes from activity.zone_ref or zone_number
+        zone: activity.zone_number || '0', // ✅ Zone comes from activity.zone_number
         day: `Day ${index + 1} - ${date.toLocaleDateString('en-US', { weekday: 'long' })}`
       }
     })

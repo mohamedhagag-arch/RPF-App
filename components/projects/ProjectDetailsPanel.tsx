@@ -215,7 +215,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           }
           
           // Get activity zone
-          const activityZoneRaw = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
+          const activityZoneRaw = (activity.zone_number || activity.activity_division || '0').toString().trim()
           const projectCode = (activity.project_code || '').trim()
           
           // ✅ Use Project Full Code from activity (most accurate)
@@ -376,7 +376,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
     }
     
     // Get activity zone
-    const activityZoneRaw = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
+    const activityZoneRaw = (activity.zone_number || activity.activity_division || '0').toString().trim()
     const projectCode = (activity.project_code || '').trim()
     
     // ✅ Use Project Full Code from activity (most accurate)
@@ -854,9 +854,9 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         'Project Sub Code': data.project_sub_code || '',
         'Project Full Code': data.project_full_code || data.project_code || '',
         'Activity': data.activity_name || '',
-        'Activity Division': data.activity_division || data.zone_ref || '',
+        'Activity Division': data.activity_division || '',
         'Unit': data.unit || '',
-        'Zone Ref': data.zone_ref || data.activity_division || '',
+        'Zone Number': data.zone_number || '0',
         'Activity Name': data.activity_name || '',
         'Planned Units': data.planned_units?.toString() || '0',
         'Deadline': data.deadline || '',
@@ -2245,7 +2245,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                   const activitiesByZone = new Map<string, typeof analytics.activities>()
                   
                   analytics.activities.forEach((activity) => {
-                    const zoneLabel = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
+                    const zoneLabel = (activity.zone_number || activity.activity_division || '0').toString().trim()
                     const zoneKey = zoneLabel || 'N/A'
                     
                     if (!activitiesByZone.has(zoneKey)) {
@@ -2630,7 +2630,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                           <div>
                             <p className="text-xs text-gray-500 dark:text-gray-400">Zone</p>
                             <p className="text-sm font-medium text-gray-900 dark:text-white">
-                              {activity.zone_ref || activity.zone_number || 'N/A'}
+                              {activity.zone_number || '0'}
                             </p>
                             {activity.zone_number && (
                               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -2672,7 +2672,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             newQuantity={0}
                             unit={activity.unit || ''}
                             showDebug={false}
-                            zone={activity.zone_ref || activity.zone_number || undefined}
+                            zone={activity.zone_number || undefined}
                             projectFullCode={activity.project_full_code || project.project_full_code || project.project_code || undefined}
                             onTotalsChange={(totals) => {
                               // ✅ Store totals for this activity to use in Planned display

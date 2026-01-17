@@ -19,7 +19,6 @@ export interface ConsistentKPIRecord extends KPIRecord {
   unit: string
   input_type: 'Planned' | 'Actual'
   activity_date: string // ✅ Unified date field (replaces target_date and actual_date)
-  zone_ref: string
   zone_number: string
   created_at: string
   updated_at: string
@@ -61,8 +60,7 @@ export class KPIConsistencyManager {
       activity_date: this.ensureString(normalized.activity_date || record['Activity Date'] || ''),
       
       // Zone fields
-      zone_ref: this.ensureString(normalized.zone_ref || record['Zone Ref'] || record['Zone'] || ''),
-      zone_number: this.ensureString(normalized.zone_number || record['Zone Number'] || ''),
+      zone_number: this.ensureString(normalized.zone_number || record['Zone Number'] || record['Zone'] || '0'),
       
       // Timestamps
       created_at: this.ensureString(record.created_at || new Date().toISOString()),
@@ -164,7 +162,6 @@ export class KPIConsistencyManager {
     unit: string
     inputType: 'Planned' | 'Actual'
     activityDate?: string // ✅ Unified date field (replaces targetDate and actualDate)
-    zoneRef?: string
     zoneNumber?: string
   }): any {
     // ✅ Only include columns that exist in the unified KPI table
@@ -187,7 +184,7 @@ export class KPIConsistencyManager {
       // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
       'Zone': (() => {
         const projectFullCode = data.projectCode || ''
-        const activityZone = data.zoneRef || data.zoneNumber || ''
+        const activityZone = data.zoneNumber || '0'
         if (activityZone && projectFullCode) {
           // If zone already contains project code, use it as is
           if (activityZone.includes(projectFullCode)) {

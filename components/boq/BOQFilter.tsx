@@ -19,7 +19,6 @@ interface BOQFilterProps {
     activity_name: string
     project_full_code?: string
     zone?: string
-    zone_ref?: string
     zone_number?: string
     unit?: string
     activity_division?: string 
@@ -217,8 +216,8 @@ export function BOQFilter({
     )
   })()
   
-  // Get unique zones from "Zone Ref" and "Zone Number" columns from database
-  // ✅ FIX: Extract zones ONLY from Zone Ref and Zone Number columns, matching selected projects
+  // Get unique zones from "Zone Number" column from database
+  // ✅ FIX: Extract zones ONLY from Zone Number column, matching selected projects
   // Use same logic as BOQTableWithCustomization.getActivityZone
   const uniqueZones = Array.from(new Set(
     activities
@@ -237,13 +236,11 @@ export function BOQFilter({
         // This ensures filter shows same zones as table (no duplicates)
         const rawActivity = (a as any).raw || {}
         
-        // ✅ Use EXACT same priority as table: zone_number -> zone_ref -> raw['Zone Number'] -> raw['Zone Ref']
+        // ✅ Use EXACT same priority as table: zone_number -> raw['Zone Number']
         let zoneValue = (a as any).zone_number || 
-                       (a as any).zone_ref || 
                        rawActivity['Zone Number'] ||
-                       rawActivity['Zone Ref'] ||
                        rawActivity['Zone #'] ||
-                       ''
+                       '0'
         
         if (!zoneValue || !zoneValue.toString().trim()) {
           return []

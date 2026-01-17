@@ -1294,14 +1294,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           }
         }
         
-        // ✅ Copy Zone from Activity if not provided (zone_ref or zone_number)
+        // ✅ Copy Zone from Activity if not provided (zone_number)
         // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
         if (!dbData['Zone'] || dbData['Zone'] === '') {
-          const activityZone = (relatedActivityForData as any).zone_ref || 
-                              (relatedActivityForData as any).zone_number ||
-                              (relatedActivityForData as any)['Zone Ref'] ||
+          const activityZone = (relatedActivityForData as any).zone_number ||
                               (relatedActivityForData as any)['Zone Number'] ||
-                              ''
+                              '0'
           if (activityZone && projectCode) {
             // If zone already contains project code, use it as is
             if (activityZone.includes(projectCode)) {
@@ -1551,11 +1549,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         )
         
         if (relatedActivityForUpdate) {
-          const activityZone = (relatedActivityForUpdate as any).zone_ref || 
-                              (relatedActivityForUpdate as any).zone_number ||
-                              (relatedActivityForUpdate as any)['Zone Ref'] ||
+          const activityZone = (relatedActivityForUpdate as any).zone_number ||
                               (relatedActivityForUpdate as any)['Zone Number'] ||
-                              ''
+                              '0'
           if (activityZone && projectCode) {
             // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
             // If zone already contains project code, use it as is
@@ -2287,9 +2283,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           getKPIField(kpi, 'Zone Number') ||
           rawKPI['Zone'] || 
           rawKPI['Zone Number'] ||
-          (kpi as any).zone_ref || 
           (kpi as any).zone_number || 
-          ''
+          '0'
         ).toString().trim()
         
         // Normalize zone by removing project code prefix
@@ -2733,7 +2728,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         // 3. Zone MUST match EXACTLY (if KPI has zone) - SAME AS TABLE
         if (kpiZone && kpiZone.trim() !== '') {
           const rawActivity = (activity as any).raw || {}
-          const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+          const activityZoneRaw = (activity.zone_number || rawActivity['Zone Number'] || '0').toString().trim()
           const activityZone = normalizeZone(activityZoneRaw, activityProjectCode)
           
           if (!activityZone || activityZone.trim() === '') {
@@ -2868,7 +2863,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       const projectFullCode = (activity.project_full_code || '').toLowerCase().trim()
       const projectCode = (activity.project_code || '').toLowerCase().trim()
       const rawActivity = (activity as any).raw || {}
-      const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+      const activityZone = (activity.zone_number || rawActivity['Zone Number'] || '0').toString().toLowerCase().trim()
       
       // Create multiple keys for flexible matching (with and without zone)
       // Key 1: activity_name + project_full_code + zone
@@ -2971,7 +2966,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         // Prefer activity with matching zone
         relatedActivity = relatedActivities.find(a => {
           const rawA = (a as any).raw || {}
-          const aZone = (a.zone_ref || a.zone_number || rawA['Zone Ref'] || rawA['Zone Number'] || '').toString().toLowerCase().trim()
+          const aZone = (a.zone_number || rawA['Zone Number'] || '0').toString().toLowerCase().trim()
           return aZone === kpiZone || aZone.includes(kpiZone) || kpiZone.includes(aZone)
         }) || relatedActivities[0]
       } else {
@@ -3773,7 +3768,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           activity_name: a.activity_name,
           project_code: a.project_code,
           project_full_code: a.project_full_code || a.project_code, // ✅ CRITICAL: Include project_full_code
-          zone: a.zone_ref || a.zone_number || '',
+          zone: a.zone_number || '0',
           unit: a.unit || '',
           activity_division: a.activity_division || ''
         }))}
@@ -3876,7 +3871,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           
           return {
             // ✅ FIX: Extract zone from multiple sources (same logic as filtering)
-            zone: ((k as any).zone || (k as any).zone_ref || (k as any).zone_number || '').toString().trim(),
+            zone: ((k as any).zone || (k as any).zone_number || '0').toString().trim(),
             section: sectionValue || undefined, // ✅ Section is separate from Zone
             unit: (k as any).unit || '',
             activity_division: (k as any).activity_division || '',

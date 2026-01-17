@@ -39,11 +39,9 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
     
     // ✅ Extract Activity Zone from multiple sources
     const activityZone = (
-      activity.zone_ref || 
       activity.zone_number || 
-      (activity as any).raw?.['Zone Ref'] || 
       (activity as any).raw?.['Zone Number'] || 
-      ''
+      '0'
     ).toString().toLowerCase().trim()
     
     // ✅ Normalize activity zone (remove project code prefix if exists)

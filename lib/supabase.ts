@@ -93,7 +93,6 @@ export interface BOQActivity {
   activity: string
   activity_division: string
   unit: string
-  zone_ref: string
   zone_number: string
   activity_name: string
   total_units: number

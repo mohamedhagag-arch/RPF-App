@@ -117,7 +117,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
     if (selectedZones.size > 0 && !showCombinedView) {
       filtered = filtered.filter((activity: BOQActivity) => {
         const rawActivity = (activity as any).raw || {}
-        const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim().toUpperCase()
+        const activityZone = (activity.zone_number || rawActivity['Zone Number'] || '0').toString().trim().toUpperCase()
         return Array.from(selectedZones).some((selectedZone) => {
           const zoneUpper = selectedZone.toUpperCase()
           return activityZone === zoneUpper || activityZone.includes(zoneUpper)
@@ -145,7 +145,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
     
     projectActivities.forEach((activity: BOQActivity) => {
       const activityName = (activity.activity_name || activity.activity || 'Unknown Activity').trim()
-      const zone = (activity as any).zone_ref || (activity as any).zone_number || ((activity as any).raw || {})['Zone Ref'] || ((activity as any).raw || {})['Zone Number'] || ''
+      const zone = (activity as any).zone_number || ((activity as any).raw || {})['Zone Number'] || '0'
       
       // Use normalized activity name as key to ensure uniqueness
       const normalizedName = activityName.toLowerCase().trim()
@@ -181,7 +181,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
     const zones = new Set<string>()
     projectActivities.forEach((activity: BOQActivity) => {
       const rawActivity = (activity as any).raw || {}
-      const zone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+      const zone = (activity.zone_number || rawActivity['Zone Number'] || '0').toString().trim()
       if (zone) {
         zones.add(zone)
       }
@@ -328,7 +328,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
     // 3. Zone Matching (FLEXIBLE - only enforce if both have zones AND they don't match)
     const rawActivity = (activity as any).raw || {}
     const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
-    const kpiZone = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().trim()
+    const kpiZone = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Number'] || '0').toString().trim()
     
     // Only enforce zone matching if BOTH activity and KPI have zones
     // If either doesn't have a zone, allow the match (flexible)
@@ -590,7 +590,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
             _isCombined: true,
             _allZones: activitiesWithSameName.map(a => {
               const rawActivity = (a as any).raw || {}
-              return (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+              return (a.zone_number || rawActivity['Zone Number'] || '0').toString().trim()
             }).filter(z => z).join(', ')
           },
           chartData,
@@ -1029,7 +1029,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
       
       // Get zone information
       const rawActivity = activity ? ((activity as any).raw || {}) : {}
-      const zone = activity ? (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim() : ''
+      const zone = activity ? (activity.zone_number || rawActivity['Zone Number'] || '0').toString().trim() : '0'
       const zoneInfo = zone ? ` - Zone: ${zone}` : ''
       
       // Add title and project info
@@ -1125,7 +1125,7 @@ export const KPICChartTab = memo(function KPICChartTab({ activities, projects, k
   // Helper function to get activity zone
   const getActivityZone = useCallback((activity: BOQActivity): string => {
     const rawActivity = (activity as any).raw || {}
-    return (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+    return (activity.zone_number || rawActivity['Zone Number'] || '0').toString().trim()
   }, [])
   
   // Helper function to generate a stable unique ID for an activity

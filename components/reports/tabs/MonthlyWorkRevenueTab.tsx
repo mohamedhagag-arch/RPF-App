@@ -460,11 +460,9 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   // Helper functions
   const getActivityZone = useCallback((activity: BOQActivity, projectFullCode: string): string => {
     const rawActivity = (activity as any).raw || {}
-    const zone = activity.zone_ref || 
-                 activity.zone_number || 
-                 rawActivity['Zone Ref'] || 
+    const zone = activity.zone_number || 
                  rawActivity['Zone Number'] || 
-                 ''
+                 '0'
     if (!zone) return ''
     const zoneStr = String(zone).trim()
     const projectCodeUpper = projectFullCode.toUpperCase()
@@ -944,12 +942,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     const rawKPI = (kpi as any).raw || {}
     const kpiZone = (
       kpi.zone || 
-      kpi.zone_ref || 
       kpi.zone_number || 
       rawKPI['Zone'] ||
-      rawKPI['Zone Ref'] || 
       rawKPI['Zone Number'] || 
-      ''
+      '0'
     ).toString().toLowerCase().trim()
     
     const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
@@ -960,12 +956,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     const rawActivity = (activity as any).raw || {}
     const activityZone = (
       (activity as any).zone ||
-      activity.zone_ref || 
       activity.zone_number || 
       rawActivity['Zone'] ||
-      rawActivity['Zone Ref'] || 
       rawActivity['Zone Number'] || 
-      ''
+      '0'
     ).toString().toLowerCase().trim()
     
     // ✅ FIX: Match by activity name and project first
@@ -2020,7 +2014,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
               const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
               const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
               const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+              const activityZone = (a.zone_number || rawActivity['Zone Number'] || '0').toString().toLowerCase().trim()
               return activityName === kpiActivityName &&
                      activityProjectFullCode === kpiProjectFullCode &&
                      (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
@@ -2038,7 +2032,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
               const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
               const activityProjectCode = (a.project_code || '').toLowerCase().trim()
               const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+              const activityZone = (a.zone_number || rawActivity['Zone Number'] || '0').toString().toLowerCase().trim()
               return activityName === kpiActivityName &&
                      activityProjectCode === kpiProjectCode &&
                      (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
@@ -2158,7 +2152,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   const getCachedActivityPeriodValues = useCallback((activityId: string, activity: BOQActivity, project: Project, projectFullCode: string): { earned: number[], planned: number[], virtualMaterial: number[], plannedVirtualMaterial: number[] } => {
     // ✅ FIX: Include zone, viewPlannedValue, and showVirtualMaterialValues in cache key to ensure different states have different cache entries
     const rawActivity = (activity as any).raw || {}
-    const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim().toUpperCase()
+    const activityZone = (activity.zone_number || rawActivity['Zone Number'] || '0').toString().trim().toUpperCase()
     // ✅ FIX: Include viewPlannedValue and showVirtualMaterialValues in cache key to ensure values are recalculated when toggled
     const cacheKey = `${activityId}-${activityZone}-${selectedDivisionsKey}-${viewPlannedValue ? 'planned' : 'actual'}-${showVirtualMaterialValues ? 'vm' : 'novm'}`
     
@@ -5517,12 +5511,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                               // ✅ FIX: Include zone in activityId to ensure unique identification per zone
                               const activityZone = (
                                 (activity as any).zone ||
-                                activity.zone_ref || 
                                 activity.zone_number || 
                                 rawActivity['Zone'] ||
-                                rawActivity['Zone Ref'] || 
                                 rawActivity['Zone Number'] || 
-                                ''
+                                '0'
                               ).toString().trim()
                               // ✅ FIX: Create unique activityId that includes activity name, project code, and zone to ensure each activity-zone combination has unique calculations
                               const activityNameForId = (activity.activity_name || activity.activity || 'N/A').toString().trim()
@@ -5547,7 +5539,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                     <div className="text-sm text-gray-700 dark:text-gray-300">
                                       <p className="font-medium">{activity.activity_name || activity.activity || 'N/A'}</p>
                                       {(() => {
-                                        const activityZone = activity.zone_ref || activity.zone_number || (rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '')
+                                        const activityZone = activity.zone_number || (rawActivity['Zone Number'] || '0')
                                         return activityZone ? (
                                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Zone: {activityZone}</p>
                                         ) : null

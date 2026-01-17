@@ -412,8 +412,7 @@ export function mapBOQFromDB(row: any): any {
     activity: row['Activity'] || '',
     activity_division: row['Activity Division'] || '',
     unit: row['Unit'] || '',
-    zone_ref: row['Zone Ref'] || '',
-    zone_number: row['Zone Number'] || row['Zone #'] || '',
+    zone_number: row['Zone Number'] || row['Zone #'] || '0',
     activity_name: activityName,
     total_units: parseNum(row['Total Units']),
     // ✅ Use new column names only
@@ -465,8 +464,7 @@ export function mapBOQToDB(boq: any): any {
     'Activity': boq.activity,
     'Activity Division': boq.activity_division,
     'Unit': boq.unit,
-    'Zone Ref': boq.zone_ref,
-    'Zone Number': boq.zone_number,
+    'Zone Number': boq.zone_number || '0',
     'Activity Name': boq.activity_name,
     // ✅ Removed Column 44 and Column 45 - use new column names only
     'Total Units': boq.total_units?.toString(),

@@ -355,12 +355,11 @@ export function IntelligentKPIForm({
       }
 
       try {
-        // ✅ CRITICAL: Use project.project_code (base code) for database lookup
-        // project_zones table stores zones by project_code (base code), not project_full_code
-        const baseProjectCode = project?.project_code || ''
+        // ✅ CRITICAL: Use project_full_code for database lookup (project_zones stores full code like "P8888-P")
+        const projectCodeForLookup = project?.project_full_code || projectCode || project?.project_code || ''
         
-        if (!baseProjectCode) {
-          console.error('❌ No project_code found in project object:', {
+        if (!projectCodeForLookup) {
+          console.error('❌ No project code found in project object:', {
             project: project?.project_name,
             project_code: project?.project_code,
             project_full_code: project?.project_full_code,
@@ -371,8 +370,9 @@ export function IntelligentKPIForm({
         }
         
         console.log('🔄 Loading zones for project:', {
-          baseProjectCode,
+          projectCodeForLookup,
           projectFullCode: project?.project_full_code,
+          projectBaseCode: project?.project_code,
           projectCode: projectCode,
           projectName: project?.project_name
         })
@@ -380,33 +380,62 @@ export function IntelligentKPIForm({
         const { getSupabaseClient, executeQuery } = await import('@/lib/simpleConnectionManager')
         const supabase = getSupabaseClient()
         
-        // ✅ Load zones from project_zones table - filter by project_code ONLY
-        // ✅ CRITICAL: Use .eq() with exact match to ensure only zones for this project
-        const { data: zonesData, error: zonesError } = await executeQuery(async () =>
+        // ✅ Load zones from project_zones table - try both full code and base code
+        let zonesData: any = null
+        let zonesError: any = null
+        
+        // First try with project_full_code
+        const { data: fullCodeData, error: fullCodeError } = await executeQuery(async () =>
           supabase
             .from('project_zones')
             .select('zones')
-            .eq('project_code', baseProjectCode)
+            .eq('project_code', projectCodeForLookup)
             .single()
         )
         
+        if (fullCodeError && fullCodeError.code !== 'PGRST116') {
+          // If error is not "no rows", try with base code as fallback
+          if (project?.project_code && project.project_code !== projectCodeForLookup) {
+            const { data: baseCodeData, error: baseCodeError } = await executeQuery(async () =>
+              supabase
+                .from('project_zones')
+                .select('zones')
+                .eq('project_code', project.project_code)
+                .single()
+            )
+            if (!baseCodeError || baseCodeError.code === 'PGRST116') {
+              zonesData = baseCodeData
+              zonesError = baseCodeError
+            } else {
+              zonesError = fullCodeError
+            }
+          } else {
+            zonesError = fullCodeError
+          }
+        } else {
+          zonesData = fullCodeData
+          zonesError = fullCodeError
+        }
+        
         if (zonesError && zonesError.code !== 'PGRST116') { // PGRST116 = no rows returned
           console.error('❌ Error loading zones from project_zones:', zonesError)
-          throw zonesError
+          setAvailableZones([])
+          return
         }
         
         if (zonesData && (zonesData as any).zones) {
-          // Parse comma-separated zones
-          const rawZonesList = (zonesData as any).zones
-            .split(',')
+          // Parse zones - support both semicolon-separated ("0; 1; 2") and comma-separated ("Zone A, Zone B")
+          const zonesString = (zonesData as any).zones
+          const rawZonesList = zonesString
+            .split(/[;,]/) // Split by semicolon or comma
             .map((z: string) => z.trim())
             .filter((z: string) => z.length > 0)
           
-          console.log(`📋 Raw zones from database for project "${baseProjectCode}":`, rawZonesList)
+          console.log(`📋 Raw zones from database for project "${projectCodeForLookup}":`, rawZonesList)
           
           // ✅ Format zones as: projectFullCode - zone (same as Smart KPI Form)
-          // Example: zone "1" becomes "P8888-01 - 1" if projectFullCode is "P8888-01"
-          const projectFullCode = project?.project_full_code || project?.project_code || baseProjectCode
+          // Example: zone "1" becomes "P8888-P - 1" if projectFullCode is "P8888-P"
+          const projectFullCode = project?.project_full_code || projectCodeForLookup
           const formattedZonesList = rawZonesList.map((zone: string) => {
             // If zone already contains project code, use it as is
             if (zone.includes(projectFullCode)) {
@@ -417,10 +446,10 @@ export function IntelligentKPIForm({
           }).sort()
           
           setAvailableZones(formattedZonesList)
-          console.log(`✅ Loaded ${formattedZonesList.length} zones from project "${baseProjectCode}" (formatted):`, formattedZonesList)
+          console.log(`✅ Loaded ${formattedZonesList.length} zones from project "${projectCodeForLookup}" (formatted):`, formattedZonesList)
         } else {
           // No zones defined for this project
-          console.log('⚠️ No zones defined for project:', baseProjectCode)
+          console.log('⚠️ No zones defined for project:', projectCodeForLookup)
           setAvailableZones([])
         }
       } catch (error) {
@@ -563,14 +592,11 @@ export function IntelligentKPIForm({
       setSelectedActivity(activity)
       console.log('🧠 Smart Form: Activity selected for auto-fill:', activity.activity_name)
       
-      // Auto-fill zone information from activity (only if it's a valid zone, not division)
-      if (activity.zone_ref && activity.zone_ref !== 'Enabling Division') {
-        setZone(activity.zone_ref)
-        console.log('✅ Smart Form: Zone auto-filled from activity:', activity.zone_ref)
-      }
-      if (activity.zone_number) {
+      // Auto-fill zone information from activity
+      if (activity.zone_number && activity.zone_number !== '0') {
+        setZone(activity.zone_number)
         setZoneNumber(activity.zone_number)
-        console.log('✅ Smart Form: Zone number auto-filled from activity:', activity.zone_number)
+        console.log('✅ Smart Form: Zone auto-filled from activity:', activity.zone_number)
       }
     }
   }
@@ -593,7 +619,7 @@ export function IntelligentKPIForm({
     setZoneNumber(value)
     setHasUserChangedFields(true)
     
-    // Auto-generate zone ref if not provided
+    // Auto-generate zone if not provided
     if (!zone && value) {
       setZone(`Zone ${value}`)
     }
@@ -678,7 +704,7 @@ export function IntelligentKPIForm({
         // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
         'Zone': (() => {
           const projectFullCodeValue = finalProjectCode
-          const activityZone = zone || selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+          const activityZone = zone || selectedActivity?.zone_number || '0'
           if (activityZone && projectFullCodeValue) {
             // If zone already contains project code, use it as is
             if (activityZone.includes(projectFullCodeValue)) {
@@ -826,7 +852,7 @@ export function IntelligentKPIForm({
         // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
         'Zone': (() => {
           const projectFullCodeValue = finalProjectCode
-          const activityZone = zone || selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+          const activityZone = zone || selectedActivity?.zone_number || '0'
           if (activityZone && projectFullCodeValue) {
             // If zone already contains project code, use it as is
             if (activityZone.includes(projectFullCodeValue)) {
@@ -1334,7 +1360,7 @@ export function IntelligentKPIForm({
                 className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-xs text-gray-500 mt-1">
-                💡 Auto-generated from Zone Reference
+                💡 Auto-generated from Zone Number
               </p>
             </div>
           </div>

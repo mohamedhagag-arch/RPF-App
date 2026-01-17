@@ -830,7 +830,6 @@ export default function PendingApprovalKPIPage() {
         'Project Full Name',                 // ❌ NOT in actual database
         'Project Status',                    // ❌ NOT in main KPI table (causes "Could not find column" error)
         'Zone Number',                       // ❌ NOT in main KPI table
-        'Zone Ref',                          // ❌ NOT in actual database
         'Zone #',                            // ❌ NOT in actual database (use "Zone" instead)
         'Column 44',                         // ❌ NOT in actual database
         'Column 45',                         // ❌ NOT in actual database
@@ -1078,7 +1077,6 @@ export default function PendingApprovalKPIPage() {
         'Project Full Name',                 // ❌ NOT in actual database
         'Project Status',                    // ❌ NOT in main KPI table (causes "Could not find column" error)
         'Zone Number',                       // ❌ NOT in main KPI table
-        'Zone Ref',                          // ❌ NOT in actual database
         'Zone #',                            // ❌ NOT in actual database (use "Zone" instead)
         'Column 44',                         // ❌ NOT in actual database
         'Column 45',                         // ❌ NOT in actual database

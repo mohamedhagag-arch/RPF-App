@@ -66,17 +66,18 @@ export function SmartActualKPIForm({
         
         const { data, error } = await supabase
           .from('Planning Database - BOQ Rates')
-          .select('"Zone Ref", "Zone Number"')
-          .not('"Zone Ref"', 'is', null)
-          .not('"Zone Ref"', 'eq', '')
+          .select('"Zone Number"')
+          .not('"Zone Number"', 'is', null)
+          .not('"Zone Number"', 'eq', '')
+          .not('"Zone Number"', 'eq', '0')
         
         if (error) throw error
         
         // Extract unique zones
         const zones = new Set<string>()
         data?.forEach((item: any) => {
-          if (item['Zone Ref']) {
-            zones.add(item['Zone Ref'])
+          if (item['Zone Number'] && item['Zone Number'] !== '0') {
+            zones.add(item['Zone Number'])
           }
         })
         
@@ -274,9 +275,9 @@ export function SmartActualKPIForm({
       
       
       // Auto-fill zone from BOQ data (only if it's a valid zone, not division)
-      if (selectedActivity.zone_ref && selectedActivity.zone_ref !== 'Enabling Division') {
-        setZone(selectedActivity.zone_ref)
-        console.log('✅ Smart Form: Zone auto-filled from BOQ:', selectedActivity.zone_ref)
+      if (selectedActivity.zone_number && selectedActivity.zone_number !== '0') {
+        setZone(selectedActivity.zone_number)
+        console.log('✅ Smart Form: Zone auto-filled from BOQ:', selectedActivity.zone_number)
       }
       
       // Auto-fill daily rate and calculate quantity
@@ -458,7 +459,7 @@ export function SmartActualKPIForm({
     setZoneNumber(value)
     setHasUserChangedFields(true)
     
-    // Auto-generate zone ref if not provided
+    // Auto-generate zone number if not provided
     if (!zone && value) {
       setZone(`Zone ${value}`)
     }

@@ -3,7 +3,6 @@
 import { BOQActivity } from '@/lib/supabase'
 
 export interface ZoneInfo {
-  zone_ref: string
   zone_number: string
   activities_count: number
   total_planned_units: number
@@ -31,7 +30,6 @@ export interface ZoneAnalytics {
 }
 
 export interface ZoneMapping {
-  zone_ref: string
   zone_number: string
   zone_name: string
   zone_description?: string
@@ -60,8 +58,8 @@ export class ZoneManager {
     const zones = new Set<string>()
     
     this.activities.forEach(activity => {
-      if (activity.zone_ref) {
-        zones.add(activity.zone_ref)
+      if (activity.zone_number && activity.zone_number !== '0') {
+        zones.add(activity.zone_number)
       }
     })
     
@@ -71,8 +69,8 @@ export class ZoneManager {
   /**
    * Get zone information with enhanced details
    */
-  getZoneInfo(zoneRef: string): ZoneInfo | null {
-    const zoneActivities = this.activities.filter(a => a.zone_ref === zoneRef)
+  getZoneInfo(zoneNumber: string): ZoneInfo | null {
+    const zoneActivities = this.activities.filter(a => a.zone_number === zoneNumber)
     
     if (zoneActivities.length === 0) return null
 
@@ -81,7 +79,7 @@ export class ZoneManager {
     const progress = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
 
     // Find zone mapping for enhanced info
-    const zoneMapping = this.zoneMappings.find(z => z.zone_ref === zoneRef)
+    const zoneMapping = this.zoneMappings.find(z => z.zone_number === zoneNumber)
     
     // Determine zone status based on progress
     let zoneStatus: 'active' | 'completed' | 'pending' | 'delayed' = 'pending'
@@ -90,13 +88,12 @@ export class ZoneManager {
     else zoneStatus = 'pending'
 
     return {
-      zone_ref: zoneRef,
-      zone_number: zoneMapping?.zone_number || this.extractZoneNumber(zoneRef),
+      zone_number: zoneNumber,
       activities_count: zoneActivities.length,
       total_planned_units: totalPlanned,
       total_actual_units: totalActual,
       progress_percentage: Math.round(progress * 100) / 100,
-      zone_name: zoneMapping?.zone_name || this.generateZoneName(zoneRef),
+      zone_name: zoneMapping?.zone_name || this.generateZoneName(zoneNumber),
       zone_description: zoneMapping?.zone_description,
       zone_status: zoneStatus,
       zone_priority: zoneMapping?.zone_priority || this.determineZonePriority(progress, zoneActivities.length),
@@ -121,7 +118,7 @@ export class ZoneManager {
     // Zone performance comparison
     const zoneComparison = zoneInfos
       .map(z => ({
-        zone: z.zone_ref,
+        zone: z.zone_number,
         performance: z.progress_percentage
       }))
       .sort((a, b) => b.performance - a.performance)
@@ -148,8 +145,8 @@ export class ZoneManager {
   /**
    * Get activities by zone
    */
-  getActivitiesByZone(zoneRef: string): BOQActivity[] {
-    return this.activities.filter(a => a.zone_ref === zoneRef)
+  getActivitiesByZone(zoneNumber: string): BOQActivity[] {
+    return this.activities.filter(a => a.zone_number === zoneNumber)
   }
 
   /**
@@ -171,8 +168,8 @@ export class ZoneManager {
   /**
    * Get zone mapping for a specific zone
    */
-  getZoneMapping(zoneRef: string): ZoneMapping | null {
-    return this.zoneMappings.find(z => z.zone_ref === zoneRef) || null
+  getZoneMapping(zoneNumber: string): ZoneMapping | null {
+    return this.zoneMappings.find(z => z.zone_number === zoneNumber) || null
   }
 
   /**
@@ -181,9 +178,8 @@ export class ZoneManager {
   createZoneMapping(zoneData: Partial<ZoneMapping>): ZoneMapping {
     const now = new Date().toISOString()
     return {
-      zone_ref: zoneData.zone_ref || '',
-      zone_number: zoneData.zone_number || '',
-      zone_name: zoneData.zone_name || this.generateZoneName(zoneData.zone_ref || ''),
+      zone_number: zoneData.zone_number || '0',
+      zone_name: zoneData.zone_name || this.generateZoneName(zoneData.zone_number || '0'),
       zone_description: zoneData.zone_description || '',
       zone_color: zoneData.zone_color || '#3B82F6',
       zone_priority: zoneData.zone_priority || 'medium',
@@ -247,22 +243,16 @@ export class ZoneManager {
   }
 
   // Private helper methods
-  private extractZoneNumber(zoneRef: string): string {
-    // Extract number from zone reference (e.g., "Zone 1" -> "1")
-    const match = zoneRef.match(/(\d+)/)
-    return match ? match[1] : ''
-  }
-
-  private generateZoneName(zoneRef: string): string {
-    if (!zoneRef) return 'Unknown Zone'
+  private generateZoneName(zoneNumber: string): string {
+    if (!zoneNumber || zoneNumber === '0') return 'Unknown Zone'
     
     // If already has a proper name, return it
-    if (zoneRef.includes('Zone') || zoneRef.includes('Area')) {
-      return zoneRef
+    if (zoneNumber.includes('Zone') || zoneNumber.includes('Area')) {
+      return zoneNumber
     }
     
-    // Generate a name based on the reference
-    return `Zone ${zoneRef}`
+    // Generate a name based on the number
+    return `Zone ${zoneNumber}`
   }
 
   private determineZonePriority(progress: number, activityCount: number): 'high' | 'medium' | 'low' {
@@ -285,19 +275,19 @@ export class ZoneManager {
     // Find zones with low progress
     const lowProgressZones = zoneInfos.filter(z => z.progress_percentage < 25)
     if (lowProgressZones.length > 0) {
-      recommendations.push(`Focus on ${lowProgressZones.length} zones with low progress: ${lowProgressZones.map(z => z.zone_ref).join(', ')}`)
+      recommendations.push(`Focus on ${lowProgressZones.length} zones with low progress: ${lowProgressZones.map(z => z.zone_number).join(', ')}`)
     }
     
     // Find zones with high activity count but low progress
     const highActivityLowProgress = zoneInfos.filter(z => z.activities_count > 3 && z.progress_percentage < 50)
     if (highActivityLowProgress.length > 0) {
-      recommendations.push(`Review resource allocation for zones with many activities but low progress: ${highActivityLowProgress.map(z => z.zone_ref).join(', ')}`)
+      recommendations.push(`Review resource allocation for zones with many activities but low progress: ${highActivityLowProgress.map(z => z.zone_number).join(', ')}`)
     }
     
     // Find completed zones
     const completedZones = zoneInfos.filter(z => z.zone_status === 'completed')
     if (completedZones.length > 0) {
-      recommendations.push(`Celebrate completion of ${completedZones.length} zones: ${completedZones.map(z => z.zone_ref).join(', ')}`)
+      recommendations.push(`Celebrate completion of ${completedZones.length} zones: ${completedZones.map(z => z.zone_number).join(', ')}`)
     }
     
     return recommendations
@@ -305,11 +295,9 @@ export class ZoneManager {
 }
 
 export const zoneUtils = {
-  formatZoneName(zoneRef: string, zoneNumber?: string): string {
-    if (zoneNumber) {
-      return `Zone ${zoneNumber} (${zoneRef})`
-    }
-    return zoneRef
+  formatZoneName(zoneNumber: string): string {
+    if (!zoneNumber || zoneNumber === '0') return 'Unknown Zone'
+    return zoneNumber.includes('Zone') ? zoneNumber : `Zone ${zoneNumber}`
   },
 
   getZoneColor(progress: number): string {

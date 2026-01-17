@@ -27,7 +27,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
     activity_name: '',
     activity_division: '',
     unit: '',
-    zone_ref: '',
+    zone_number: '0',
     zone_number: '',
     
     // ✅ Quantities (User Input)
@@ -76,7 +76,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
         activity_name: activity.activity_name,
         activity_division: activity.activity_division || '',
         unit: activity.unit || '',
-        zone_ref: (activity.zone_ref && activity.zone_ref !== 'Enabling Division') ? activity.zone_ref : '',
+        zone_number: activity.zone_number || '0',
         zone_number: activity.zone_number || '',
         
         // ✅ Quantities

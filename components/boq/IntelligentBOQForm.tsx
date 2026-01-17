@@ -80,8 +80,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [selectedActivitiesScopes, setSelectedActivitiesScopes] = useState<Set<string>>(new Set()) // Track all scopes from selected activities
   
   // Zone Management
-  const [zoneRef, setZoneRef] = useState(activity?.zone_ref || '')
-  const [zoneNumber, setZoneNumber] = useState(activity?.zone_number || '')
+  const [zoneNumber, setZoneNumber] = useState(activity?.zone_number || '0')
   const [availableZones, setAvailableZones] = useState<string[]>([])
   const [showZoneDropdown, setShowZoneDropdown] = useState(false)
   const [zoneSuggestions, setZoneSuggestions] = useState<string[]>([])
@@ -604,28 +603,62 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       }
 
       try {
-        // ✅ FIX: Use project.project_code (base code) for database lookup, not projectCode (which may be full_code)
-        const baseProjectCode = project?.project_code || projectCode
-        console.log('🔄 Loading zones for project:', baseProjectCode)
+        // ✅ FIX: Use project_full_code for database lookup (project_zones stores full code like "P8888-P")
+        const projectCodeForLookup = project?.project_full_code || projectCode || project?.project_code || ''
+        console.log('🔄 Loading zones for project:', {
+          projectCodeForLookup,
+          projectCode,
+          projectFullCode: project?.project_full_code,
+          projectBaseCode: project?.project_code
+        })
         const supabase = getSupabaseClient()
         
-        // Load zones from project_zones table
-        const { data: zonesData, error: zonesError } = await executeQuery(async () =>
+        // Load zones from project_zones table - try both full code and base code
+        let zonesData: any = null
+        let zonesError: any = null
+        
+        // First try with project_full_code
+        const { data: fullCodeData, error: fullCodeError } = await executeQuery(async () =>
           supabase
             .from('project_zones')
             .select('zones')
-            .eq('project_code', baseProjectCode)
+            .eq('project_code', projectCodeForLookup)
             .single()
         )
+        
+        if (fullCodeError && fullCodeError.code !== 'PGRST116') {
+          // If error is not "no rows", try with base code as fallback
+          if (project?.project_code && project.project_code !== projectCodeForLookup) {
+            const { data: baseCodeData, error: baseCodeError } = await executeQuery(async () =>
+              supabase
+                .from('project_zones')
+                .select('zones')
+                .eq('project_code', project.project_code)
+                .single()
+            )
+            if (!baseCodeError || baseCodeError.code === 'PGRST116') {
+              zonesData = baseCodeData
+              zonesError = baseCodeError
+            } else {
+              zonesError = fullCodeError
+            }
+          } else {
+            zonesError = fullCodeError
+          }
+        } else {
+          zonesData = fullCodeData
+          zonesError = fullCodeError
+        }
         
         if (zonesError && zonesError.code !== 'PGRST116') { // PGRST116 = no rows returned
           throw zonesError
         }
         
         if (zonesData && (zonesData as any).zones) {
-          // Parse comma-separated zones
-          const zonesList = (zonesData as any).zones
-            .split(',')
+          // Parse zones - support both semicolon-separated ("0; 1; 2") and comma-separated ("Zone A, Zone B")
+          const zonesString = (zonesData as any).zones
+          const zonesList = zonesString
+            .split(/[;,]/) // Split by semicolon or comma
             .map((z: string) => z.trim())
             .filter((z: string) => z.length > 0)
             .sort()
@@ -847,11 +880,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     const getActivityZone = (activity: any): string => {
       const rawActivity = (activity as any).raw || {}
       let zoneValue = activity.zone_number || 
-                     activity.zone_ref || 
                      rawActivity['Zone Number'] ||
-                     rawActivity['Zone Ref'] ||
                      rawActivity['Zone #'] ||
-                     ''
+                     '0'
       
       if (zoneValue && activity.project_code) {
         const projectCodeUpper = activity.project_code.toUpperCase().trim()
@@ -1042,8 +1073,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       console.log('📝 Loading activity data for editing:', {
         id: activity.id,
         activity_division: activity.activity_division,
-        zone_number: activity.zone_number,
-        zone_ref: activity.zone_ref
+        zone_number: activity.zone_number
       })
       
       // ✅ Load Division from activity
@@ -1056,12 +1086,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       if (activity.zone_number) {
         setZoneNumber(activity.zone_number)
         console.log('✅ Zone Number loaded from activity:', activity.zone_number)
-      }
-      
-      // ✅ Load Zone Ref from activity
-      if (activity.zone_ref) {
-        setZoneRef(activity.zone_ref)
-        console.log('✅ Zone Ref loaded from activity:', activity.zone_ref)
+      } else {
+        setZoneNumber('0')
       }
 
       // ✅ Use EXACT SAME function as table to get planned start date
@@ -1109,8 +1135,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   }, [
     activity?.id, 
     activity?.activity_division, 
-    activity?.zone_number, 
-    activity?.zone_ref,
+    activity?.zone_number,
     activity?.planned_activity_start_date,
     activity?.activity_planned_start_date,
     activity?.deadline,
@@ -1415,8 +1440,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         planned_value: parseFloat(plannedValue) || 0,
         planned_activity_start_date: startDate,
         deadline: endDate,
-        // ✅ Zone Reference - NOT from Division (Division is separate from Zone)
-        zone_ref: zoneRef || '', // ✅ Do NOT use responsible_division as Zone - they are separate
+        // ✅ Zone Number - NOT from Division (Division is separate from Zone)
+        zone_number: zoneNumber || '0', // ✅ Do NOT use responsible_division as Zone - they are separate
         project_full_name: project?.project_name || '',
         activity_timing: activityTiming,
         has_value: hasValue,
@@ -1593,30 +1618,13 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   // Zone handlers
   function handleZoneSelect(selectedZone: string) {
     // ✅ Zone Number = selected zone name
-    setZoneNumber(selectedZone)
-    
-    // ✅ Zone Reference = project_code + " - " + zone_number (auto-generated)
-    if (projectCode) {
-      const fullZoneRef = `${projectCode} - ${selectedZone}`
-      setZoneRef(fullZoneRef)
-    } else {
-      setZoneRef(selectedZone)
-    }
-    
+    setZoneNumber(selectedZone || '0')
     setShowZoneDropdown(false)
-    
-    console.log('✅ Zone selected:', selectedZone, '→ Zone Reference:', projectCode ? `${projectCode} - ${selectedZone}` : selectedZone)
+    console.log('✅ Zone selected:', selectedZone)
   }
 
   function handleZoneNumberChange(value: string) {
-    setZoneNumber(value)
-    
-    // ✅ Auto-generate zone ref with project code and separator (-)
-    if (projectCode && value) {
-      setZoneRef(`${projectCode} - ${value}`)
-    } else if (!zoneRef && value) {
-      setZoneRef(`Zone ${value}`)
-    }
+    setZoneNumber(value || '0')
   }
   
   async function handleSubmit(e: React.FormEvent) {
@@ -1765,11 +1773,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_full_code: projectFullCode, // ✅ Use properly built project_full_code
         activity_name: activityName,
         activity_division: activityDivision || project?.responsible_division || '',
-        // ✅ Zone Reference - NOT from Division (Division is separate from Zone)
-        // ✅ Zone should come from zoneRef input or zone selection, NOT from responsible_division
-        zone_ref: zoneRef || '', // ✅ Do NOT use responsible_division as Zone - they are separate
-        // ✅ Zone Number = position in project zones list (1-based) or manual entry
-        zone_number: zoneNumber || '',
+        // ✅ Zone Number - NOT from Division (Division is separate from Zone)
+        // ✅ Zone should come from zoneNumber input or zone selection, NOT from responsible_division
+        zone_number: zoneNumber || '0', // ✅ Do NOT use responsible_division as Zone - they are separate
         unit,
         planned_units: parseFloat(plannedUnits) || 0,
         planned_value: parseFloat(plannedValue) || 0,
@@ -1813,7 +1819,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         planned_activity_start_date: activityData.planned_activity_start_date,
         deadline: activityData.deadline,
         activity_division: activityData.activity_division,
-        zone_ref: activityData.zone_ref,
+        zone_number: activityData.zone_number || '0',
         unit: activityData.unit,
         activity_timing: activityData.activity_timing,
         has_value: activityData.has_value,
@@ -2691,13 +2697,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                         onChange={(e) => {
                           const selectedZone = e.target.value
                           if (selectedZone) {
-                            setZoneNumber(selectedZone)
-                            // ✅ Zone Reference = project_code + " - " + zone_number (auto-generated)
-                            const fullZoneRef = `${projectCode} - ${selectedZone}`
-                            setZoneRef(fullZoneRef)
+                            setZoneNumber(selectedZone || '0')
                           } else {
-                            setZoneNumber('')
-                            setZoneRef('')
+                            setZoneNumber('0')
                           }
                         }}
                         className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -2743,29 +2745,10 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 )}
               </div>
               
-              {/* Zone Reference - Auto-generated and read-only */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  <span className="flex items-center gap-2">
-                    <span className="text-lg">🏗️</span>
-                    Zone Reference
-                  </span>
-                </label>
-                <Input 
-                  value={zoneRef}
-                  readOnly={true}
-                  placeholder="Auto-generated (Project Code - Zone Number)"
-                  disabled={true}
-                  className="bg-gray-100 dark:bg-gray-800 cursor-not-allowed"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  💡 Auto-generated as: <strong>{projectCode || 'Project'} - [Selected Zone]</strong>
-                </p>
-              </div>
             </div>
 
             {/* Zone Info Card */}
-            {zoneRef && (
+            {zoneNumber && zoneNumber !== '0' && (
               <div className="p-4 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 border border-green-200 dark:border-green-700 rounded-lg">
                 <div className="flex items-start gap-3">
                   <div className="flex-shrink-0">
@@ -2778,8 +2761,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                       Zone Information
                     </h3>
                     <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-400">
-                      <div><span className="font-medium">Zone Number:</span> {zoneNumber || 'Not selected'}</div>
-                      <div><span className="font-medium">Zone Reference:</span> {zoneRef || 'Auto-generated'}</div>
+                      <div><span className="font-medium">Zone Number:</span> {zoneNumber}</div>
                       {projectCode && (
                         <div className="col-span-2"><span className="font-medium">Project:</span> {projectCode}</div>
                       )}

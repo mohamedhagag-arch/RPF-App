@@ -241,12 +241,13 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
               </td>
               <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-gray-100 w-24">
                 <div className="flex flex-col gap-1">
-                  <span className="px-1.5 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400 rounded text-center truncate">
-                    {(activity.zone_ref && activity.zone_ref !== 'Enabling Division') ? activity.zone_ref : 'N/A'}
-                  </span>
-                  {activity.zone_number && (
+                  {activity.zone_number && activity.zone_number !== '0' ? (
                     <span className="px-1.5 py-0.5 text-xs font-medium bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-400 rounded text-center truncate">
                       {activity.zone_number}
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-400 rounded text-center truncate">
+                      0
                     </span>
                   )}
                 </div>

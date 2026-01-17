@@ -127,13 +127,12 @@ export const ActivityPeriodicalProgressTab = memo(function ActivityPeriodicalPro
     // 3. Zone Matching (ULTRA STRICT - must match zone exactly)
     // ✅ NOT from Section - Section is separate from Zone
     const kpiZoneRaw = (kpi.zone || kpi['Zone'] || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
-    const activityZoneRef = (activity.zone_ref || rawActivity['Zone Ref'] || '').toString().trim()
-    const activityZoneNumber = (activity.zone_number || rawActivity['Zone Number'] || '').toString().trim()
+    const activityZoneNumber = (activity.zone_number || rawActivity['Zone Number'] || '0').toString().trim()
     
     // Use targetZone (from grouped data) or activity zone
     const zoneToMatch = targetZone && targetZone !== 'N/A' && targetZone !== 'n/a' 
       ? targetZone 
-      : (activityZoneRef || activityZoneNumber || '')
+      : (activityZoneNumber || '0')
     
     if (zoneToMatch && zoneToMatch !== 'N/A' && zoneToMatch !== 'n/a') {
       // Activity is in a specific zone - KPI MUST have zone (no exceptions)
@@ -161,20 +160,14 @@ export const ActivityPeriodicalProgressTab = memo(function ActivityPeriodicalPro
       }
     } else {
       // If activity has no zone but KPI has zone, that's OK (include it)
-      // But if activity has zone info in zone_ref/zone_number, try to match
-      if (activityZoneRef || activityZoneNumber) {
-        const activityZoneRefNum = activityZoneRef ? extractZoneNumber(activityZoneRef) : ''
+      // But if activity has zone info in zone_number, try to match
+      if (activityZoneNumber) {
         const activityZoneNumberNum = activityZoneNumber ? extractZoneNumber(activityZoneNumber) : ''
         const kpiZoneNum = kpiZoneRaw ? extractZoneNumber(kpiZoneRaw) : ''
         
         // If KPI has zone, it should match activity zone
-        if (kpiZoneNum) {
-          if (activityZoneRefNum && activityZoneRefNum !== kpiZoneNum) {
-            return false
-          }
-          if (activityZoneNumberNum && activityZoneNumberNum !== kpiZoneNum) {
-            return false
-          }
+        if (kpiZoneNum && activityZoneNumberNum && activityZoneNumberNum !== kpiZoneNum) {
+          return false
         }
       }
     }
@@ -378,7 +371,7 @@ export const ActivityPeriodicalProgressTab = memo(function ActivityPeriodicalPro
     const onTrackActivities = projectActivities.filter(a => a.activity_on_track).length
     
     // Count zones
-    const uniqueZones = new Set(projectActivities.map(a => a.zone_ref || a.zone_number || 'N/A'))
+    const uniqueZones = new Set(projectActivities.map(a => a.zone_number || '0'))
     const totalZones = uniqueZones.size
     
     // Count divisions
@@ -420,7 +413,7 @@ export const ActivityPeriodicalProgressTab = memo(function ActivityPeriodicalPro
     const zonesMap = new Map<string, Map<string, BOQActivity[]>>()
     
     projectActivities.forEach((activity: BOQActivity) => {
-      const zone = (activity.zone_ref || activity.zone_number || 'N/A').toString().trim()
+      const zone = (activity.zone_number || '0').toString().trim()
       const workType = activity.activity_division || 'Other'
       
       if (!zonesMap.has(zone)) {

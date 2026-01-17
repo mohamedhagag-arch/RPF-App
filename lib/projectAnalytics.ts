@@ -549,7 +549,7 @@ export function calculateProjectAnalytics(
     let matchingActivity: BOQActivity | null = null
     for (const activity of projectActivities) {
       const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-      const activityZone = (activity.zone_ref || activity.zone_number || '').toString().trim().toLowerCase()
+      const activityZone = (activity.zone_number || '0').toString().trim().toLowerCase()
       
       // Match activity name
       const nameMatch = kpiActivityName === activityName || 

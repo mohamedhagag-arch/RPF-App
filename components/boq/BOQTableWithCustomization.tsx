@@ -501,11 +501,9 @@ export function BOQTableWithCustomization({
     const getActivityZone = (activity: BOQActivity): string => {
       const rawActivity = (activity as any).raw || {}
       let zoneValue = activity.zone_number || 
-                     activity.zone_ref || 
                      rawActivity['Zone Number'] ||
-                     rawActivity['Zone Ref'] ||
                      rawActivity['Zone #'] ||
-                     ''
+                     '0'
       
       if (zoneValue && activity.project_code) {
         const projectCodeUpper = activity.project_code.toUpperCase().trim()
@@ -803,11 +801,9 @@ export function BOQTableWithCustomization({
     const getActivityZone = (activity: BOQActivity): string => {
       const rawActivity = (activity as any).raw || {}
       let zoneValue = activity.zone_number || 
-                     activity.zone_ref || 
                      rawActivity['Zone Number'] ||
-                     rawActivity['Zone Ref'] ||
                      rawActivity['Zone #'] ||
-                     ''
+                     '0'
       
       if (zoneValue && activity.project_code) {
         const projectCodeUpper = activity.project_code.toUpperCase().trim()
@@ -1030,11 +1026,9 @@ export function BOQTableWithCustomization({
     const getActivityZone = (activity: BOQActivity): string => {
       const rawActivity = (activity as any).raw || {}
       let zoneValue = activity.zone_number || 
-                     activity.zone_ref || 
                      rawActivity['Zone Number'] ||
-                     rawActivity['Zone Ref'] ||
                      rawActivity['Zone #'] ||
-                     ''
+                     '0'
       
       if (zoneValue && activity.project_code) {
         const projectCodeUpper = activity.project_code.toUpperCase().trim()
@@ -1400,11 +1394,9 @@ export function BOQTableWithCustomization({
     const getActivityZone = (activity: BOQActivity): string => {
       const raw = (activity as any).raw || {}
       let zoneValue = activity.zone_number || 
-                     activity.zone_ref || 
                      raw['Zone Number'] ||
-                     raw['Zone Ref'] ||
                      raw['Zone #'] ||
-                     ''
+                     '0'
       
       // ✅ NEW: If zone is empty, try to extract from activity description
       if (!zoneValue || zoneValue.trim() === '') {
@@ -1740,9 +1732,8 @@ export function BOQTableWithCustomization({
         // Get Zone from multiple sources
         const rawActivityDetails = (activity as any).raw || {}
         let zoneValue = activity.zone_number || 
-                       activity.zone_ref || 
+                       activity.zone_number || 
                        rawActivityDetails['Zone Number'] ||
-                       rawActivityDetails['Zone Ref'] ||
                        rawActivityDetails['Zone #'] ||
                        ''
         
