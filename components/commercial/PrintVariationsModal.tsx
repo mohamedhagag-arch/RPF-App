@@ -738,7 +738,6 @@ export function PrintVariationsModal({ isOpen, onClose, variations, filters, get
                     return 3
                   }
                 },
-                width: tableWidth,
                 dontBreakRows: true
               }
             ],
