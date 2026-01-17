@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { 
   Search, 
   Plus, 
@@ -28,11 +29,14 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/app/providers'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import MachineryDayRates from './MachineryDayRates'
+import RPFEquipmentList from './RPFEquipmentList'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 
 export default function MachineList() {
   const { user, appUser } = useAuth()
   const guard = usePermissionGuard()
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [machines, setMachines] = useState<Machine[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -49,6 +53,7 @@ export default function MachineList() {
   const canEdit = guard.hasAccess('cost_control.machine_list.edit')
   const canDelete = guard.hasAccess('cost_control.machine_list.delete')
   const canViewRates = guard.hasAccess('cost_control.machinery_day_rates.view')
+  const canViewRPFEquipment = guard.hasAccess('cost_control.rpf_equipment.view')
   
   // Filter states
   const [rentalFilter, setRentalFilter] = useState<'all' | 'rented' | 'not-rented'>('all')
@@ -57,7 +62,30 @@ export default function MachineList() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   
   // Tab state
-  const [activeTab, setActiveTab] = useState<'list' | 'rates'>('list')
+  const [activeTab, setActiveTab] = useState<'list' | 'rates' | 'rpf-equipment'>('list')
+  
+  // Handle URL search params for tabs
+  useEffect(() => {
+    const tab = searchParams?.get('tab') as 'list' | 'rates' | 'rpf-equipment' | null
+    if (tab && ['list', 'rates', 'rpf-equipment'].includes(tab)) {
+      // Check permissions before setting tab
+      if (tab === 'rates' && !canViewRates) {
+        setActiveTab('list')
+        return
+      }
+      if (tab === 'rpf-equipment' && !canViewRPFEquipment) {
+        setActiveTab('list')
+        return
+      }
+      setActiveTab(tab)
+    }
+  }, [searchParams, canViewRates, canViewRPFEquipment])
+  
+  // Update URL when tab changes
+  const handleTabChange = (tab: 'list' | 'rates' | 'rpf-equipment') => {
+    setActiveTab(tab)
+    router.push(`/cost-control/machine-list?tab=${tab}`, { scroll: false })
+  }
   
   // Machinery Day Rates data (from Machinery Day Rates sheet)
   const [machineryDayRates, setMachineryDayRates] = useState<MachineryDayRate[]>([])
@@ -661,7 +689,7 @@ export default function MachineList() {
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex space-x-8">
           <button
-            onClick={() => setActiveTab('list')}
+            onClick={() => handleTabChange('list')}
             className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
               activeTab === 'list'
                 ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
@@ -675,7 +703,7 @@ export default function MachineList() {
           </button>
           {canViewRates && (
             <button
-              onClick={() => setActiveTab('rates')}
+              onClick={() => handleTabChange('rates')}
               className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'rates'
                   ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
@@ -685,6 +713,21 @@ export default function MachineList() {
               <div className="flex items-center gap-2">
                 <Calculator className="h-4 w-4" />
                 Machinery Day Rates
+              </div>
+            </button>
+          )}
+          {canViewRPFEquipment && (
+            <button
+              onClick={() => handleTabChange('rpf-equipment')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'rpf-equipment'
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Cog className="h-4 w-4" />
+                RPF Equipment
               </div>
             </button>
           )}
@@ -1313,6 +1356,8 @@ export default function MachineList() {
         </>
       ) : activeTab === 'rates' && canViewRates ? (
         <MachineryDayRates machines={machines} />
+      ) : activeTab === 'rpf-equipment' && canViewRPFEquipment ? (
+        <RPFEquipmentList />
       ) : null}
 
     </div>

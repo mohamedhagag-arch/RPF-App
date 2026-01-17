@@ -106,8 +106,6 @@ const sidebarItems: SidebarItem[] = [
           { icon: HardHat, label: 'Subcontractor', tab: 'cost-control/subcontractor', badgeIcon: HardHat, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
           { icon: Fuel, label: 'Diesel', tab: 'cost-control/diesel', badgeIcon: Fuel, badgeColor: 'bg-gradient-to-br from-amber-500 to-yellow-500' },
           { icon: Truck, label: 'Transportation', tab: 'cost-control/transportation', badgeIcon: Truck, badgeColor: 'bg-gradient-to-br from-green-500 to-teal-500' },
-          { icon: Users, label: 'Hired Manpower', tab: 'cost-control/hired-manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-indigo-500 to-purple-500' },
-          { icon: Cog, label: 'RPF Equipment', tab: 'cost-control/rpf-equipment', badgeIcon: Cog, badgeColor: 'bg-gradient-to-br from-slate-500 to-gray-500' },
           { icon: Wrench, label: 'Rented Equipment', tab: 'cost-control/rented-equipment', badgeIcon: Wrench, badgeColor: 'bg-gradient-to-br from-amber-500 to-orange-500' },
           { icon: DollarSign, label: 'Other Cost', tab: 'cost-control/other-cost', badgeIcon: DollarSign, badgeColor: 'bg-gradient-to-br from-emerald-500 to-teal-500' },
         ]
@@ -196,7 +194,6 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'cost-control/subcontractor') return '/cost-control/subcontractor'
     if (tab === 'cost-control/diesel') return '/cost-control/diesel'
     if (tab === 'cost-control/transportation') return '/cost-control/transportation'
-    if (tab === 'cost-control/hired-manpower') return '/cost-control/hired-manpower'
     if (tab === 'cost-control/rented-equipment') return '/cost-control/rented-equipment'
     if (tab === 'cost-control/other-cost') return '/cost-control/other-cost'
     if (tab === 'hr') return '/hr'
@@ -332,8 +329,6 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                 return guard.hasAccess('cost_control.transportation.view')
               case 'cost-control/hired-manpower':
                 return guard.hasAccess('cost_control.hired_manpower.view')
-              case 'cost-control/rpf-equipment':
-                return guard.hasAccess('cost_control.rpf_equipment.view')
               case 'cost-control/rented-equipment':
                 return guard.hasAccess('cost_control.rented_equipment.view')
               case 'cost-control/other-cost':
@@ -469,10 +464,6 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
               return guard.hasAccess('cost_control.diesel.view')
             case 'cost-control/transportation':
               return guard.hasAccess('cost_control.transportation.view')
-            case 'cost-control/hired-manpower':
-              return guard.hasAccess('cost_control.hired_manpower.view')
-            case 'cost-control/rpf-equipment':
-              return guard.hasAccess('cost_control.rpf_equipment.view')
             case 'cost-control/rented-equipment':
               return guard.hasAccess('cost_control.rented_equipment.view')
             case 'cost-control/other-cost':

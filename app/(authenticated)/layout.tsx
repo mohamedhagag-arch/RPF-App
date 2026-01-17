@@ -336,7 +336,6 @@ export default function AuthenticatedLayout({
     if (pathname === '/cost-control/designation-rates') return 'cost-control/designation-rates'
     if (pathname === '/cost-control/machine-list') return 'cost-control/machine-list'
     if (pathname === '/cost-control/transportation') return 'cost-control/transportation'
-    if (pathname === '/cost-control/hired-manpower') return 'cost-control/hired-manpower'
     if (pathname === '/cost-control/rpf-equipment') return 'cost-control/rpf-equipment'
     if (pathname === '/cost-control/rented-equipment') return 'cost-control/rented-equipment'
     if (pathname === '/cost-control/other-cost') return 'cost-control/other-cost'
@@ -396,9 +395,9 @@ export default function AuthenticatedLayout({
     } else if (tab === 'cost-control/transportation') {
       router.push('/cost-control/transportation')
     } else if (tab === 'cost-control/hired-manpower') {
-      router.push('/cost-control/hired-manpower')
+      router.push('/cost-control/manpower?tab=hired-manpower')
     } else if (tab === 'cost-control/rpf-equipment') {
-      router.push('/cost-control/rpf-equipment')
+      router.push('/cost-control/machine-list?tab=rpf-equipment')
     } else if (tab === 'cost-control/rented-equipment') {
       router.push('/cost-control/rented-equipment')
     } else if (tab === 'cost-control/other-cost') {

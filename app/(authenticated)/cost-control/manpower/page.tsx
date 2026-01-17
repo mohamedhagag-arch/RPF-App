@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { PermissionPage } from '@/components/ui/PermissionPage'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
@@ -8,8 +9,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
-import { UserCheck, Download, Upload, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, ArrowRight, Plus, Save, Edit, Trash2, CheckSquare, Square, Calculator, FileText, FileSpreadsheet } from 'lucide-react'
+import { UserCheck, Download, Upload, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, ArrowRight, Plus, Save, Edit, Trash2, CheckSquare, Square, Calculator, FileText, FileSpreadsheet, Users } from 'lucide-react'
 import DesignationRates from '@/components/cost-control/DesignationRates'
+import HiredManpowerList from '@/components/cost-control/HiredManpowerList'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import dynamic from 'next/dynamic'
 
@@ -43,10 +45,12 @@ interface ManpowerRecord {
   cost?: number
 }
 
-type ManpowerTab = 'manpower' | 'employee-rates' | 'absent-costs'
+type ManpowerTab = 'manpower' | 'employee-rates' | 'absent-costs' | 'hired-manpower'
 
 export default function ManpowerPage() {
   const guard = usePermissionGuard()
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<ManpowerTab>('manpower')
   const [data, setData] = useState<ManpowerRecord[]>([])
   const [loading, setLoading] = useState(false)
@@ -73,6 +77,30 @@ export default function ManpowerPage() {
   const canDelete = guard.hasAccess('cost_control.manpower.delete')
   const canExport = guard.hasAccess('cost_control.manpower.export')
   const canImport = guard.hasAccess('cost_control.manpower.create') // Import requires create permission
+  const canViewHiredManpower = guard.hasAccess('cost_control.hired_manpower.view')
+  
+  // Handle URL search params for tabs
+  useEffect(() => {
+    const tab = searchParams?.get('tab') as ManpowerTab | null
+    if (tab && ['manpower', 'employee-rates', 'absent-costs', 'hired-manpower'].includes(tab)) {
+      // Check permissions before setting tab
+      if (tab === 'employee-rates' && !guard.hasAccess('cost_control.designation_rates.view')) {
+        setActiveTab('manpower')
+        return
+      }
+      if (tab === 'hired-manpower' && !canViewHiredManpower) {
+        setActiveTab('manpower')
+        return
+      }
+      setActiveTab(tab)
+    }
+  }, [searchParams, guard, canViewHiredManpower])
+  
+  // Update URL when tab changes
+  const handleTabChange = (tab: ManpowerTab) => {
+    setActiveTab(tab)
+    router.push(`/cost-control/manpower?tab=${tab}`, { scroll: false })
+  }
   
   // ✅ Import/Export State
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -152,7 +180,6 @@ export default function ManpowerPage() {
   const [itemsPerPage, setItemsPerPage] = useState(50) // عرض 50 صف فقط في كل مرة
   
   const supabase = getSupabaseClient()
-  const router = useRouter()
 
   // ✅ Extract time only from datetime-local or time string
   const extractTimeOnly = (datetimeValue: string): string => {
@@ -2500,7 +2527,7 @@ export default function ManpowerPage() {
           <div className="border-b border-gray-200 dark:border-gray-700">
             <nav className="flex space-x-8">
               <button
-                onClick={() => setActiveTab('manpower')}
+                onClick={() => handleTabChange('manpower')}
                 className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === 'manpower'
                     ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
@@ -2514,7 +2541,7 @@ export default function ManpowerPage() {
               </button>
               {guard.hasAccess('cost_control.designation_rates.view') && (
                 <button
-                  onClick={() => setActiveTab('employee-rates')}
+                  onClick={() => handleTabChange('employee-rates')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                     activeTab === 'employee-rates'
                       ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
@@ -2528,7 +2555,7 @@ export default function ManpowerPage() {
                 </button>
               )}
               <button
-                onClick={() => setActiveTab('absent-costs')}
+                onClick={() => handleTabChange('absent-costs')}
                 className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === 'absent-costs'
                     ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
@@ -2540,6 +2567,21 @@ export default function ManpowerPage() {
                   Absent Costs
                 </div>
               </button>
+              {canViewHiredManpower && (
+                <button
+                  onClick={() => handleTabChange('hired-manpower')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'hired-manpower'
+                      ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Hired Manpower
+                  </div>
+                </button>
+              )}
             </nav>
           </div>
 
@@ -2548,6 +2590,8 @@ export default function ManpowerPage() {
             <DesignationRates />
           ) : activeTab === 'absent-costs' ? (
             <AbsentCosts />
+          ) : activeTab === 'hired-manpower' && canViewHiredManpower ? (
+            <HiredManpowerList />
           ) : (
             <>
               {/* Stats Cards */}
