@@ -418,6 +418,12 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
             'Auto Generated Unique Reference Number',
             'auto_generated_unique_reference_number'
           ]) || '',
+          external_ref_no: getValue([
+            'External Ref no.',
+            'external_ref_no',
+            'External Ref No.',
+            'external_ref_number'
+          ]) || '',
           project_full_code: getValue([
             'Project Full Code',
             'project_full_code'
