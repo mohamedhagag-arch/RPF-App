@@ -60,9 +60,8 @@ export function ZoneFilter({
     // Search filter
     if (searchTerm) {
       filtered = filtered.filter(zone => 
-        zone.zone_ref.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        zone.zone_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        zone.zone_number?.toLowerCase().includes(searchTerm.toLowerCase())
+        zone.zone_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        zone.zone_name?.toLowerCase().includes(searchTerm.toLowerCase())
       )
     }
 
@@ -82,7 +81,7 @@ export function ZoneFilter({
       
       switch (sortBy) {
         case 'name':
-          comparison = (a.zone_name || a.zone_ref).localeCompare(b.zone_name || b.zone_ref)
+          comparison = (a.zone_name || a.zone_number).localeCompare(b.zone_name || b.zone_number)
           break
         case 'progress':
           comparison = a.progress_percentage - b.progress_percentage
@@ -252,13 +251,13 @@ export function ZoneFilter({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredZones.map((zone) => (
           <ModernCard
-            key={zone.zone_ref}
+            key={zone.zone_number}
             className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
-              selectedZone === zone.zone_ref 
+              selectedZone === zone.zone_number 
                 ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' 
                 : 'hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
-            onClick={() => handleZoneClick(zone.zone_ref)}
+            onClick={() => handleZoneClick(zone.zone_number)}
           >
             <div className="p-6">
               <div className="flex items-start justify-between mb-4">
@@ -268,14 +267,14 @@ export function ZoneFilter({
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900 dark:text-white">
-                      {zone.zone_name || zone.zone_ref}
+                      {zone.zone_name || `Zone ${zone.zone_number}`}
                     </h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {zone.zone_number ? `#${zone.zone_number}` : 'No number'}
+                      Zone #{zone.zone_number}
                     </p>
                   </div>
                 </div>
-                {selectedZone === zone.zone_ref && (
+                {selectedZone === zone.zone_number && (
                   <div className="p-1 bg-blue-100 dark:bg-blue-900/30 rounded-full">
                     <CheckCircle className="h-4 w-4 text-blue-600" />
                   </div>
